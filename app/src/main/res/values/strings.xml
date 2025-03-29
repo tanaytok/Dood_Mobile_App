@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">dodoprojectv2</string>
+    <string name="title_home">Ana Sayfa</string>
+    <string name="title_tasks">Görevler</string>
+    <string name="title_leaderboard">Skor Tablosu</string>
+    <string name="title_camera">Kamera</string>
+    <string name="title_notifications">Bildirimler</string>
+    <string name="title_profile">Profil</string>
+</resources>

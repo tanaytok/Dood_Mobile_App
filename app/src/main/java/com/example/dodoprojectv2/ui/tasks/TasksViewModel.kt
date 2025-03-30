@@ -1,13 +1,25 @@
 package com.example.dodoprojectv2.ui.tasks
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.dodoprojectv2.MyApplication
+import com.example.dodoprojectv2.work.TaskGeneratorWorker
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 
 class TasksViewModel : ViewModel() {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
@@ -28,9 +40,13 @@ class TasksViewModel : ViewModel() {
 
     private val _selectedTask = MutableLiveData<Task>()
     val selectedTask: LiveData<Task> = _selectedTask
+    
+    private val _timeUntilReset = MutableLiveData<String>()
+    val timeUntilReset: LiveData<String> = _timeUntilReset
 
     init {
         loadTasks()
+        startTimeUntilResetCounter()
     }
 
     fun loadTasks() {
@@ -43,49 +59,262 @@ class TasksViewModel : ViewModel() {
             return
         }
         
-        // Firestore'dan görevleri yükle
+        // Bugünün tarihini al
+        val today = Calendar.getInstance()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dateString = dateFormat.format(today.time)
+        
+        // Önce kullanıcının bugünkü görevlerini kontrol et
         firestore.collection("tasks")
             .whereEqualTo("userId", currentUser.uid)
-            .whereGreaterThan("expiresAt", Calendar.getInstance().timeInMillis) // Süresi geçmemiş görevler
+            .whereEqualTo("dateString", dateString)
             .get()
             .addOnSuccessListener { documents ->
-                _isLoading.value = false
-                
-                if (documents.isEmpty) {
-                    // Firestore'da görev yoksa örnek görevleri göster
-                    createSampleTasksIfNeeded()
-                    return@addOnSuccessListener
-                }
-                
-                val tasksList = documents.mapNotNull { doc ->
-                    try {
-                        Task(
-                            id = doc.id,
-                            title = doc.getString("title") ?: "",
-                            totalCount = doc.getLong("totalCount")?.toInt() ?: 1,
-                            completedCount = doc.getLong("completedCount")?.toInt() ?: 0,
-                            isCompleted = doc.getBoolean("isCompleted") ?: false,
-                            timestamp = doc.getLong("timestamp") ?: 0,
-                            expiresAt = doc.getLong("expiresAt") ?: 0,
-                            points = doc.getLong("points")?.toInt() ?: 100
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Görev verisi dönüştürülürken hata: ${e.message}", e)
-                        null
+                if (!documents.isEmpty) {
+                    // Kullanıcının bugünkü görevleri varsa, onları göster
+                    var tasksList = documents.mapNotNull { doc ->
+                        try {
+                            Task(
+                                id = doc.id,
+                                title = doc.getString("title") ?: "",
+                                totalCount = doc.getLong("totalCount")?.toInt() ?: 1,
+                                completedCount = doc.getLong("completedCount")?.toInt() ?: 0,
+                                isCompleted = doc.getBoolean("isCompleted") ?: false,
+                                timestamp = doc.getLong("timestamp") ?: 0,
+                                expiresAt = doc.getLong("expiresAt") ?: 0,
+                                points = doc.getLong("points")?.toInt() ?: 100,
+                                userId = doc.getString("userId") ?: "",
+                                dateString = doc.getString("dateString") ?: ""
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Görev verisi dönüştürülürken hata: ${e.message}", e)
+                            null
+                        }
                     }
+                    
+                    // Aynı başlıkta birden fazla görev varsa filtrele
+                    tasksList = tasksList.distinctBy { it.title }
+                    
+                    // 3'ten fazla görev varsa, sadece en son eklenen 3 görevi göster
+                    if (tasksList.size > 3) {
+                        Log.w(TAG, "Kullanıcının gereğinden fazla görevi var: ${tasksList.size}, sadece 3 görev gösterilecek")
+                        // Temizleme işlemi yap - sadece en son 3 görevi tut
+                        val tasksToKeep = tasksList.sortedByDescending { it.timestamp }.take(3)
+                        val tasksToDelete = tasksList.filter { task -> tasksToKeep.none { it.id == task.id } }
+                        
+                        // Fazla görevleri sil
+                        val batch = firestore.batch()
+                        tasksToDelete.forEach { task ->
+                            batch.delete(firestore.collection("tasks").document(task.id))
+                        }
+                        
+                        batch.commit()
+                            .addOnSuccessListener {
+                                Log.d(TAG, "${tasksToDelete.size} fazla görev silindi")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Fazla görevler silinirken hata: ${e.message}", e)
+                            }
+                        
+                        // Sadece tutulacak görevleri göster
+                        tasksList = tasksToKeep
+                    }
+                    
+                    _tasks.value = tasksList
+                    _isEmpty.value = tasksList.isEmpty()
+                    _isLoading.value = false
+                    Log.d(TAG, "Kullanıcının bugünkü görevleri yüklendi: ${tasksList.size} görev")
+                } else {
+                    // Kullanıcının görevleri yoksa, bugünkü görevleri "daily_tasks" koleksiyonundan kontrol et ve ata
+                    Log.d(TAG, "Kullanıcının bugün için görevi bulunamadı, görevi atama işlemi yapılacak")
+                    assignTasksToUser(currentUser.uid, dateString)
                 }
-                
-                _tasks.value = tasksList
-                _isEmpty.value = tasksList.isEmpty()
             }
             .addOnFailureListener { e ->
                 _isLoading.value = false
                 _errorMessage.value = "Görevler yüklenirken hata oluştu: ${e.message}"
                 Log.e(TAG, "Görevler yüklenirken hata: ${e.message}", e)
+                _isEmpty.value = true
                 
                 // Hata durumunda örnek görevleri göster
                 createSampleTasksIfNeeded()
             }
+    }
+
+    private fun assignTasksToUser(userId: String, dateString: String) {
+        _isLoading.value = true
+        
+        Log.d(TAG, "Kullanıcıya görevler atanıyor: $userId, tarih: $dateString")
+        
+        // Önce kullanıcının mevcut görevlerini temizle
+        firestore.collection("tasks")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("dateString", dateString)
+            .get()
+            .addOnSuccessListener { existingTasks ->
+                // Eğer mevcut görevler varsa önce bunları silelim
+                if (!existingTasks.isEmpty) {
+                    Log.d(TAG, "Kullanıcının ${existingTasks.size()} mevcut görevi var, temizleniyor")
+                    val batch = firestore.batch()
+                    existingTasks.forEach { doc ->
+                        batch.delete(firestore.collection("tasks").document(doc.id))
+                    }
+                    
+                    batch.commit()
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Mevcut görevler temizlendi, yeni görevler atanıyor")
+                            // Şimdi yeni görevleri oluşturalım
+                            fetchDailyTasksAndAssign(userId, dateString)
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Mevcut görevler temizlenirken hata: ${e.message}", e)
+                            _isLoading.value = false
+                            _errorMessage.value = "Görevler atanırken hata oluştu: ${e.message}"
+                            _isEmpty.value = true
+                            // Hata durumunda örnek görevleri göster
+                            createSampleTasksIfNeeded()
+                        }
+                } else {
+                    // Mevcut görev yoksa direkt yeni görevleri ata
+                    fetchDailyTasksAndAssign(userId, dateString)
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Mevcut görevler kontrol edilirken hata: ${e.message}", e)
+                _isLoading.value = false
+                _errorMessage.value = "Görevler kontrol edilirken hata oluştu: ${e.message}"
+                _isEmpty.value = true
+                // Hata durumunda örnek görevleri göster
+                createSampleTasksIfNeeded()
+            }
+    }
+    
+    private fun fetchDailyTasksAndAssign(userId: String, dateString: String) {
+        // Önce bugünün görevlerini daily_tasks koleksiyonundan kontrol et
+        firestore.collection("daily_tasks")
+            .document(dateString)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists() && document.get("tasks") != null) {
+                    try {
+                        Log.d(TAG, "Bugün için daily_tasks koleksiyonunda görevler bulundu")
+                        // Günlük görevler varsa, bunları kullanıcıya atayacağız
+                        val tasksData = document.get("tasks") as List<Map<String, Any>>
+                        Log.d(TAG, "Toplam günlük görev sayısı: ${tasksData.size}")
+                        
+                        // Görevleri karıştır ve en fazla 3 tane seç
+                        val shuffledTasks = tasksData.shuffled()
+                        val selectedTasks = if (shuffledTasks.size >= 3) {
+                            shuffledTasks.take(3)
+                        } else {
+                            Log.w(TAG, "Yeterli günlük görev yok, mevcut tüm görevler kullanılıyor: ${shuffledTasks.size}")
+                            shuffledTasks
+                        }
+                        
+                        Log.d(TAG, "Seçilen görevler: ${selectedTasks.map { it["title"] }}")
+                        
+                        // Benzersiz görevler olduğundan emin ol
+                        val uniqueTasks = selectedTasks.distinctBy { it["title"] as String }
+                        if (uniqueTasks.size < selectedTasks.size) {
+                            Log.w(TAG, "Bazı görevler tekrarlıyor! Benzersiz görev sayısı: ${uniqueTasks.size}")
+                        }
+                        
+                        // Görevleri Firestore'a kaydet
+                        val batch = firestore.batch()
+                        val userTasks = mutableListOf<Task>()
+                        
+                        for (taskData in uniqueTasks) {
+                            val taskId = taskData["id"] as? String ?: UUID.randomUUID().toString()
+                            val taskRef = firestore.collection("tasks").document()
+                            
+                            val task = Task(
+                                id = taskRef.id,
+                                title = taskData["title"] as? String ?: "",
+                                totalCount = (taskData["totalCount"] as? Number)?.toInt() ?: 1,
+                                completedCount = 0,
+                                isCompleted = false,
+                                timestamp = System.currentTimeMillis(),
+                                expiresAt = System.currentTimeMillis() + 24*60*60*1000, // 24 saat geçerli
+                                points = 100,
+                                userId = userId,
+                                dateString = dateString
+                            )
+                            
+                            userTasks.add(task)
+                            
+                            val taskMap = hashMapOf(
+                                "id" to task.id,
+                                "title" to task.title,
+                                "totalCount" to task.totalCount,
+                                "completedCount" to 0,
+                                "isCompleted" to false,
+                                "timestamp" to task.timestamp,
+                                "expiresAt" to task.expiresAt,
+                                "points" to task.points,
+                                "userId" to userId,
+                                "dateString" to dateString,
+                                "assignedAt" to FieldValue.serverTimestamp()
+                            )
+                            
+                            batch.set(taskRef, taskMap)
+                        }
+                        
+                        batch.commit()
+                            .addOnSuccessListener {
+                                _tasks.value = userTasks
+                                _isEmpty.value = userTasks.isEmpty()
+                                _isLoading.value = false
+                                Log.d(TAG, "Kullanıcıya görevler başarıyla atandı: ${userTasks.size} görev")
+                            }
+                            .addOnFailureListener { e ->
+                                _isLoading.value = false
+                                _errorMessage.value = "Görevler atanırken hata oluştu: ${e.message}"
+                                _isEmpty.value = true
+                                Log.e(TAG, "Görevler atanırken hata: ${e.message}", e)
+                                
+                                // Hata durumunda örnek görevleri göster
+                                createSampleTasksIfNeeded()
+                            }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Görev verisi işlenirken hata oluştu", e)
+                        _isLoading.value = false
+                        _errorMessage.value = "Görev verisi işlenirken hata oluştu: ${e.message}"
+                        _isEmpty.value = true
+                        
+                        // Hata durumunda örnek görevleri göster
+                        createSampleTasksIfNeeded()
+                    }
+                } else {
+                    Log.d(TAG, "Bugün için görevler oluşturulmamış, AI görev oluşturucuyu başlatıyorum")
+                    // Görev oluşturucuyu başlat
+                    triggerTaskGeneration(userId, dateString)
+                }
+            }
+            .addOnFailureListener { e ->
+                _isLoading.value = false
+                _errorMessage.value = "Görevler kontrol edilirken hata oluştu: ${e.message}"
+                _isEmpty.value = true
+                Log.e(TAG, "Görevler kontrol edilirken hata: ${e.message}", e)
+                
+                // Hata durumunda örnek görevleri göster
+                createSampleTasksIfNeeded()
+            }
+    }
+
+    private fun triggerTaskGeneration(userId: String, dateString: String) {
+        _isLoading.value = true
+        
+        // WorkManager ile görev oluşturmayı başlat
+        val workRequest = OneTimeWorkRequestBuilder<TaskGeneratorWorker>()
+            .build()
+        
+        val workManager = WorkManager.getInstance(MyApplication.appContext)
+        workManager.enqueue(workRequest)
+        
+        // İşlem başladıktan 3 saniye sonra görevleri yeniden yüklemeyi dene
+        Handler(Looper.getMainLooper()).postDelayed({
+            loadTasks()
+        }, 3000)
     }
 
     private fun createSampleTasksIfNeeded() {
@@ -93,6 +322,12 @@ class TasksViewModel : ViewModel() {
         val calendar = Calendar.getInstance()
         calendar.add(Calendar.DAY_OF_YEAR, 1) // 1 gün geçerli
         val expiresAt = calendar.timeInMillis
+        
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dateString = dateFormat.format(calendar.time)
+        
+        val currentUser = auth.currentUser
+        val userId = currentUser?.uid ?: ""
         
         val sampleTasks = listOf(
             Task(
@@ -103,7 +338,9 @@ class TasksViewModel : ViewModel() {
                 isCompleted = false,
                 timestamp = System.currentTimeMillis(),
                 expiresAt = expiresAt,
-                points = 100
+                points = 100,
+                userId = userId,
+                dateString = dateString
             ),
             Task(
                 id = UUID.randomUUID().toString(),
@@ -113,7 +350,9 @@ class TasksViewModel : ViewModel() {
                 isCompleted = false,
                 timestamp = System.currentTimeMillis(),
                 expiresAt = expiresAt,
-                points = 100
+                points = 100,
+                userId = userId,
+                dateString = dateString
             ),
             Task(
                 id = UUID.randomUUID().toString(),
@@ -123,12 +362,47 @@ class TasksViewModel : ViewModel() {
                 isCompleted = false,
                 timestamp = System.currentTimeMillis(),
                 expiresAt = expiresAt,
-                points = 100
+                points = 100,
+                userId = userId,
+                dateString = dateString
             )
         )
         
         _tasks.value = sampleTasks
         _isEmpty.value = false
+        Log.d(TAG, "Örnek görevler oluşturuldu")
+    }
+    
+    private fun startTimeUntilResetCounter() {
+        val handler = Handler(Looper.getMainLooper())
+        val updateRunnable = object : Runnable {
+            override fun run() {
+                updateTimeUntilReset()
+                handler.postDelayed(this, 60000) // Her dakika güncelle
+            }
+        }
+        handler.post(updateRunnable)
+    }
+    
+    private fun updateTimeUntilReset() {
+        val now = Calendar.getInstance()
+        val nextReset = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1) // Yarın
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        
+        val diffMillis = nextReset.timeInMillis - now.timeInMillis
+        val hours = TimeUnit.MILLISECONDS.toHours(diffMillis)
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(diffMillis) % 60
+        
+        _timeUntilReset.value = if (minutes > 0) {
+            "Yeni görevlere: $hours saat $minutes dakika"
+        } else {
+            "Yeni görevlere: $hours saat"
+        }
     }
 
     fun selectTask(task: Task) {
@@ -174,7 +448,8 @@ class TasksViewModel : ViewModel() {
                 "isCompleted" to task.isCompleted,
                 "timestamp" to task.timestamp,
                 "expiresAt" to task.expiresAt,
-                "points" to task.points
+                "points" to task.points,
+                "dateString" to task.dateString
             ))
             .addOnSuccessListener {
                 Log.d(TAG, "Görev başarıyla güncellendi: ${task.id}")

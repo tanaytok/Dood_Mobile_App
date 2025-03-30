@@ -74,6 +74,11 @@ class TasksFragment : Fragment() {
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             }
         }
+        
+        // Kalan süre sayacını izle
+        tasksViewModel.timeUntilReset.observe(viewLifecycleOwner) { timeText ->
+            binding.textTimeUntilReset.text = timeText
+        }
     }
     
     private fun setupSwipeRefresh() {

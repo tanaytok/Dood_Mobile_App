@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -65,6 +67,9 @@ class CameraActivity : AppCompatActivity() {
     private var taskTitle: String? = null
     private var taskTotalCount: Int = 1
     private var taskCurrentCount: Int = 0
+    
+    // Çekilen fotoğrafı tutmak için değişken
+    private var capturedBitmap: Bitmap? = null
     
     private val TAG = "CameraActivity"
 
@@ -149,9 +154,36 @@ class CameraActivity : AppCompatActivity() {
                         val msg = "Fotoğraf kaydedildi: $savedUri"
                         Log.d(TAG, msg)
                         
-                        // Çekilen fotoğrafı göster
-                        binding.imagePreview.setImageURI(savedUri)
-                        binding.imagePreview.visibility = View.VISIBLE
+                        try {
+                            // Çekilen fotoğrafı bitmap olarak yükle ve göster
+                            val bitmap: Bitmap? = try {
+                                BitmapFactory.decodeFile(photoFile.absolutePath)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Fotoğraf dosyası bitmap'e dönüştürülemedi: ${e.message}")
+                                null
+                            }
+                            
+                            if (bitmap != null) {
+                                // Bitmap'i ImageView'a yerleştir
+                                binding.imagePreview.setImageBitmap(bitmap)
+                                binding.imagePreview.visibility = View.VISIBLE
+                                
+                                // capturedBitmap sınıf değişkenine kaydet
+                                capturedBitmap = bitmap
+                                
+                                Log.d(TAG, "Fotoğraf bitmap olarak yüklendi ve görüntülendi")
+                            } else {
+                                // Bitmap oluşturulamadıysa da URI'yi göster
+                                binding.imagePreview.setImageURI(savedUri)
+                                binding.imagePreview.visibility = View.VISIBLE
+                                Log.d(TAG, "Bitmap oluşturulamadı, URI doğrudan gösterildi")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Fotoğraf gösterimi sırasında hata: ${e.message}", e)
+                            // Yine de URI'yi göster
+                            binding.imagePreview.setImageURI(savedUri)
+                            binding.imagePreview.visibility = View.VISIBLE
+                        }
                         
                         // Kamera kontrolleri yerine yükleme kontrollerini göster
                         binding.layoutCameraControls.visibility = View.GONE
@@ -197,9 +229,26 @@ class CameraActivity : AppCompatActivity() {
                 if (binding.imagePreview.visibility != View.VISIBLE) {
                     Log.d(TAG, "KURTARMA MEKANİZMASI: Callback tetiklenmedi, manuel işlemi başlatıyorum")
                     
-                    // Çekilen fotoğrafı göster
-                    val savedUri = Uri.fromFile(photoFile)
-                    binding.imagePreview.setImageURI(savedUri)
+                    try {
+                        // Bitmap olarak yüklemeyi dene
+                        val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+                        if (bitmap != null) {
+                            binding.imagePreview.setImageBitmap(bitmap)
+                            capturedBitmap = bitmap  // capturedBitmap'e kaydet
+                            Log.d(TAG, "KURTARMA: Fotoğraf bitmap olarak yüklendi")
+                        } else {
+                            // URI olarak göster
+                            val savedUri = Uri.fromFile(photoFile)
+                            binding.imagePreview.setImageURI(savedUri)
+                            Log.d(TAG, "KURTARMA: Bitmap oluşturulamadı, URI kullanıldı")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "KURTARMA: Bitmap oluşturulamadı: ${e.message}")
+                        // URI olarak göster
+                        val savedUri = Uri.fromFile(photoFile)
+                        binding.imagePreview.setImageURI(savedUri)
+                    }
+                    
                     binding.imagePreview.visibility = View.VISIBLE
                     
                     // Kamera kontrolleri yerine yükleme kontrollerini göster
@@ -209,6 +258,9 @@ class CameraActivity : AppCompatActivity() {
                     // Test modunu aktifleştir
                     Log.d(TAG, "KURTARMA TEST MODU: Otomatik yükleme aktif")
                     Toast.makeText(baseContext, "TEST MODU: Otomatik olarak görev kabul ediliyor", Toast.LENGTH_LONG).show()
+                    
+                    // Hemen showTaskSuccessAndUpload'ı çağır için Uri oluştur
+                    val savedUri = Uri.fromFile(photoFile)
                     
                     runOnUiThread {
                         // Hemen showTaskSuccessAndUpload'ı çağır
@@ -235,8 +287,8 @@ class CameraActivity : AppCompatActivity() {
         // Butonlara manuel tıklama olay dinleyicileri ekle
         binding.buttonUpload.setOnClickListener {
             Log.d(TAG, "Manuel yükleme butonu tıklandı")
-            // Direkt görev ilerlemesine git, Firebase'i atla
-            directTaskCompletion()
+            // Firebase'e fotoğrafı yükle ve görev durumunu güncelle
+            uploadPhotoToFirebase(savedUri)
         }
         
         binding.buttonRetake.setOnClickListener {
@@ -291,102 +343,12 @@ class CameraActivity : AppCompatActivity() {
             Log.e(TAG, "Görev tamamlama ikonu gösterimi sırasında hata: ${e.message}")
         }
         
-        // Hemen görev ilerlemesine git
-        Log.d(TAG, "Direkt görev tamamlama başlatılıyor")
-        // Firebase yerine direkt görev ilerlemesi
-        directTaskCompletion()
+        // EMÜLATÖR TEST MODU: Otomatik olarak Firebase'e yükle
+        Log.d(TAG, "TEST MODU: Otomatik Firebase yükleme başlatılıyor")
+        // Firebase'e fotoğrafı yükle ve görev durumunu güncelle
+        uploadPhotoToFirebase(savedUri)
     }
     
-    private fun directTaskCompletion() {
-        // Görevi tamamla, Firebase'i atla
-        Log.d(TAG, "Direkt görev tamamlama başlatıldı - Firebase olmadan")
-        
-        // Yükleme durumu göster
-        binding.progressUpload.visibility = View.VISIBLE
-        binding.buttonUpload.isEnabled = false
-        binding.buttonRetake.isEnabled = false
-        
-        // Direkt olarak task progress'i güncelle
-        Handler(Looper.getMainLooper()).postDelayed({
-            try {
-                if (taskId != null) {
-                    // Görev ID varsa tamamla
-                    updateTaskProgressDirect()
-                } else {
-                    // Test ID ile tamamla
-                    updateTaskProgressDirect()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Direkt görev tamamlama hatası: ${e.message}")
-                // Yine de aktiviteyi sonlandır
-                finish()
-            }
-        }, 1000) // Kısa bir gecikme ile
-    }
-    
-    private fun updateTaskProgressDirect() {
-        // Firebase atlanarak görev ilerlemesini güncelle
-        Log.d(TAG, "updateTaskProgressDirect başlatıldı")
-        
-        try {
-            // Test modu için güvenlik kontrolü
-            val id = taskId ?: "test-task-${System.currentTimeMillis()}"
-            val newCompletedCount = taskCurrentCount + 1
-            Log.d(TAG, "Görev ilerlemesi güncelleniyor: $taskCurrentCount -> $newCompletedCount / $taskTotalCount")
-            
-            // İlerleme metnini güncelle
-            taskCurrentCount = newCompletedCount
-            binding.textTaskProgress.text = "$taskCurrentCount/$taskTotalCount"
-            
-            // Firestore'da görev durumunu güncelleme intentini oluştur
-            val resultIntent = Intent().apply {
-                putExtra("TASK_ID", id)
-                putExtra("NEW_COUNT", newCompletedCount)
-                putExtra("IS_COMPLETED", newCompletedCount >= taskTotalCount)
-            }
-            
-            Log.d(TAG, "Result intent oluşturuldu: TASK_ID=$id, NEW_COUNT=$newCompletedCount, IS_COMPLETED=${newCompletedCount >= taskTotalCount}")
-            
-            try {
-                setResult(RESULT_OK, resultIntent)
-                Log.d(TAG, "Result set edildi, RESULT_OK")
-            } catch (e: Exception) {
-                Log.e(TAG, "Result set edilemedi: ${e.message}")
-            }
-            
-            // Görev tamamlandıysa puan ekle ve aktiviteyi kapat
-            if (newCompletedCount >= taskTotalCount) {
-                Log.d(TAG, "Görev tamamlandı! Firebase atlanarak direkt işaretleniyor")
-                
-                // Başarı mesajı
-                Toast.makeText(this, "Görev tamamlandı! +100 puan kazandınız!", 
-                    Toast.LENGTH_LONG).show()
-                
-                // Kısa bir gecikme ile bitir
-                Handler(Looper.getMainLooper()).postDelayed({
-                    finish()
-                }, 1500)
-            } else {
-                // Başarılı mesajı göster
-                Log.d(TAG, "Fotoğraf yüklendi! Kamera yeniden başlatılıyor.")
-                Toast.makeText(this, "Fotoğraf kaydedildi! Devam edebilirsiniz.", Toast.LENGTH_SHORT).show()
-                
-                // Kamera kontrollerini tekrar göster
-                binding.layoutCameraControls.visibility = View.VISIBLE
-                binding.layoutUploadControls.visibility = View.GONE
-                binding.imagePreview.visibility = View.GONE
-                binding.progressUpload.visibility = View.GONE
-                binding.textAnalysisStatus.visibility = View.GONE
-                binding.taskCompletionIcon.visibility = View.GONE
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Görev ilerleme güncellemesinde hata: ${e.message}")
-            // Yine de aktiviteyi kapat
-            Toast.makeText(this, "Hata oluştu, ana ekrana dönülüyor", Toast.LENGTH_SHORT).show()
-            finish()
-        }
-    }
-
     private fun uploadPhotoToFirebase(imageUri: Uri) {
         Log.d(TAG, "uploadPhotoToFirebase başlatıldı")
         
@@ -396,7 +358,6 @@ class CameraActivity : AppCompatActivity() {
             if (userId == null) {
                 Log.e(TAG, "Kullanıcı oturum açmamış")
                 Toast.makeText(this, "Kullanıcı oturum açmamış", Toast.LENGTH_SHORT).show()
-                directTaskCompletion()
                 return
             }
             
@@ -404,7 +365,6 @@ class CameraActivity : AppCompatActivity() {
             if (taskId == null) {
                 Log.e(TAG, "Görev bilgisi bulunamadı")
                 Toast.makeText(this, "Görev bilgisi bulunamadı", Toast.LENGTH_SHORT).show()
-                directTaskCompletion()
                 return
             }
             
@@ -418,72 +378,146 @@ class CameraActivity : AppCompatActivity() {
             // Benzersiz dosya adı oluştur
             val fileName = "${UUID.randomUUID()}.jpg"
             
-            // Bitmap'i hazırla (dosya yerine)
-            val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
-            val baos = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
-            val imageData = baos.toByteArray()
-            
-            // Storage referansı oluştur
-            val storageRef = storage.reference.child("task_photos/$fileName")
-            
-            Log.d(TAG, "Firebase Storage'a yükleme başlatılıyor: $fileName (byte array kullanılarak)")
-            
-            // Firebase Storage'a doğrudan byte array yükle
-            storageRef.putBytes(imageData)
-                .continueWithTask { task ->
-                    if (!task.isSuccessful) {
-                        Log.e(TAG, "Storage yükleme hatası: ${task.exception?.message}")
-                        task.exception?.let { throw it }
+            try {
+                // Önce capturedBitmap'i kontrol et (takePhoto metodunda kaydettiğimiz bitmap)
+                var bitmap = capturedBitmap
+                
+                // Eğer capturedBitmap null ise alternatif yolları dene
+                if (bitmap == null) {
+                    Log.d(TAG, "capturedBitmap null, alternatif yöntemleri deneniyor")
+                    
+                    // Önizleme görüntüsünden bitmap elde etmeyi dene
+                    bitmap = try {
+                        (binding.imagePreview.drawable as? BitmapDrawable)?.bitmap
+                    } catch (e: Exception) {
+                        Log.e(TAG, "ImagePreview'dan bitmap alınamadı: ${e.message}")
+                        null
                     }
-                    Log.d(TAG, "Storage yükleme başarılı, downloadUrl alınıyor")
-                    storageRef.downloadUrl
-                }
-                .addOnSuccessListener { downloadUri ->
-                    Log.d(TAG, "Download URL alındı: $downloadUri")
-                    // Firestore'a fotoğraf bilgilerini kaydet
-                    val photoData = hashMapOf(
-                        "userId" to userId,
-                        "taskId" to taskId,
-                        "taskName" to taskTitle,
-                        "photoUrl" to downloadUri.toString(),
-                        "timestamp" to System.currentTimeMillis(),
-                        "isPublic" to true
-                    )
                     
-                    Log.d(TAG, "Firestore'a veri yazılıyor: $photoData")
-                    
-                    firestore.collection("user_photos")
-                        .add(photoData)
-                        .addOnSuccessListener { documentReference ->
-                            Log.d(TAG, "Fotoğraf Firestore'a kaydedildi: ${documentReference.id}")
+                    // Hala null ise, URI yöntemlerini dene
+                    if (bitmap == null) {
+                        bitmap = try {
+                            MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "ContentResolver ile bitmap oluşturulamadı: ${e.message}")
                             
-                            // Görev ilerleme durumunu ve puan güncelle
-                            updateTaskProgressWithFirebase(userId)
+                            try {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                                    val source = ImageDecoder.createSource(contentResolver, imageUri)
+                                    ImageDecoder.decodeBitmap(source)
+                                } else {
+                                    null
+                                }
+                            } catch (e2: Exception) {
+                                Log.e(TAG, "Alternatif yöntemle de bitmap oluşturulamadı: ${e2.message}")
+                                null
+                            }
                         }
-                        .addOnFailureListener { e ->
-                            binding.buttonUpload.isEnabled = true
-                            binding.buttonRetake.isEnabled = true
-                            binding.progressUpload.visibility = View.GONE
-                            
-                            Log.e(TAG, "Fotoğraf Firestore'a kaydedilemedi: ${e.message}", e)
-                            Log.e(TAG, "Detaylı Firestore hatası: ${e.toString()}")
-                            
-                            // Hata mesajını göster ama yine de devam et
-                            directTaskCompletion()
+                    }
+                } else {
+                    Log.d(TAG, "capturedBitmap kullanılıyor")
+                }
+                
+                // Bitmap hala null ise boş bir bitmap oluştur
+                if (bitmap == null) {
+                    Log.e(TAG, "Bitmap oluşturulamadı, boş bitmap kullanılacak")
+                    // Boş bir bitmap oluştur - 320x240 çözünürlüğünde
+                    bitmap = Bitmap.createBitmap(320, 240, Bitmap.Config.ARGB_8888)
+                    
+                    // Bitmap'in üzerine basit bir metin çiz
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.drawColor(Color.WHITE)
+                    val paint = android.graphics.Paint().apply {
+                        color = Color.BLACK
+                        textSize = 30f
+                    }
+                    canvas.drawText("Görev Fotoğrafı", 20f, 120f, paint)
+                    
+                    Toast.makeText(this, "Orijinal fotoğraf yüklenemedi, test fotoğrafı kullanılıyor", Toast.LENGTH_SHORT).show()
+                }
+                
+                // Bitmap'i sıkıştır
+                val baos = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                val imageData = baos.toByteArray()
+                
+                // Storage referansı oluştur
+                val storageRef = storage.reference.child("task_photos/$fileName")
+                
+                Log.d(TAG, "Firebase Storage'a yükleme başlatılıyor: $fileName (byte array kullanılarak)")
+                
+                // Firebase Storage'a doğrudan byte array yükle
+                storageRef.putBytes(imageData)
+                    .continueWithTask { task ->
+                        if (!task.isSuccessful) {
+                            Log.e(TAG, "Storage yükleme hatası: ${task.exception?.message}")
+                            task.exception?.let { throw it }
                         }
-                }
-                .addOnFailureListener { e ->
-                    binding.buttonUpload.isEnabled = true
-                    binding.buttonRetake.isEnabled = true
-                    binding.progressUpload.visibility = View.GONE
-                    
-                    Log.e(TAG, "Fotoğraf yüklenemedi: ${e.message}", e)
-                    Log.e(TAG, "Detaylı hata: ${e.toString()}")
-                    
-                    // Hata mesajını göster ama yine de devam et
-                    directTaskCompletion()
-                }
+                        Log.d(TAG, "Storage yükleme başarılı, downloadUrl alınıyor")
+                        storageRef.downloadUrl
+                    }
+                    .addOnSuccessListener { downloadUri ->
+                        Log.d(TAG, "Download URL alındı: $downloadUri")
+                        // Firestore'a fotoğraf bilgilerini kaydet
+                        val photoData = hashMapOf(
+                            "userId" to userId,
+                            "taskId" to taskId,
+                            "taskName" to taskTitle,
+                            "photoUrl" to downloadUri.toString(),
+                            "timestamp" to System.currentTimeMillis(),
+                            "isPublic" to true
+                        )
+                        
+                        Log.d(TAG, "Firestore'a veri yazılıyor: $photoData")
+                        
+                        firestore.collection("user_photos")
+                            .add(photoData)
+                            .addOnSuccessListener { documentReference ->
+                                Log.d(TAG, "Fotoğraf Firestore'a kaydedildi: ${documentReference.id}")
+                                
+                                // Görev ilerleme durumunu ve puan güncelle
+                                updateTaskProgressWithFirebase(userId)
+                            }
+                            .addOnFailureListener { e ->
+                                binding.buttonUpload.isEnabled = true
+                                binding.buttonRetake.isEnabled = true
+                                binding.progressUpload.visibility = View.GONE
+                                
+                                Log.e(TAG, "Fotoğraf Firestore'a kaydedilemedi: ${e.message}", e)
+                                Log.e(TAG, "Detaylı Firestore hatası: ${e.toString()}")
+                                Toast.makeText(this, "Firestore hatası: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+                                
+                                // Hata durumunda bile görevi ilerlet
+                                updateTaskProgressWithFirebase(userId)
+                            }
+                    }
+                    .addOnFailureListener { e ->
+                        binding.buttonUpload.isEnabled = true
+                        binding.buttonRetake.isEnabled = true
+                        binding.progressUpload.visibility = View.GONE
+                        
+                        Log.e(TAG, "Fotoğraf yüklenemedi: ${e.message}", e)
+                        Log.e(TAG, "Detaylı hata: ${e.toString()}")
+                        Toast.makeText(this, "Fotoğraf yüklenemedi: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+                        
+                        // Hata durumunda bile görevi ilerlet
+                        updateTaskProgressWithFirebase(userId)
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Bitmap işlemi sırasında hata: ${e.message}", e)
+                
+                // Butonları geri etkinleştir
+                binding.buttonUpload.isEnabled = true
+                binding.buttonRetake.isEnabled = true
+                binding.progressUpload.visibility = View.GONE
+                Toast.makeText(this, "Fotoğraf hazırlanamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+                
+                // Hata ayrıntılarını logla
+                Log.e(TAG, "Bitmap hatası detayı: ${e.stackTraceToString()}")
+                
+                // Fotoğraf yüklenemese bile görevi ilerlet
+                updateTaskProgressWithFirebase(userId)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Upload işlemi sırasında hata: ${e.message}")
             Log.e(TAG, "Detaylı genel hata: ${e.toString()}")
@@ -492,9 +526,13 @@ class CameraActivity : AppCompatActivity() {
             binding.buttonUpload.isEnabled = true
             binding.buttonRetake.isEnabled = true
             binding.progressUpload.visibility = View.GONE
+            Toast.makeText(this, "Bir hata oluştu: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
             
-            // Hata durumunda da görevi tamamla
-            directTaskCompletion()
+            // En son çare: görevi yine de ilerlet
+            val userId = auth.currentUser?.uid
+            if (userId != null) {
+                updateTaskProgressWithFirebase(userId)
+            }
         }
     }
     
@@ -568,40 +606,73 @@ class CameraActivity : AppCompatActivity() {
         val userId = auth.currentUser?.uid ?: return
         
         try {
-            // Görevi Firestore'da tamamlanmış olarak işaretle
-            firestore.collection("tasks").document(taskId)
-                .update("status", "completed")
-                .addOnSuccessListener {
-                    Log.d(TAG, "Görev tamamlandı olarak işaretlendi: $taskId")
+            // Önce görev belgesini al ve puanı öğren
+            firestore.collection("tasks").document(taskId).get()
+                .addOnSuccessListener { document ->
+                    // Görev puanını al (varsayılan olarak 100 puan)
+                    val points = document.getLong("points")?.toInt() ?: 100
+                    Log.d(TAG, "Görev puanı alındı: $points puan (taskId: $taskId)")
                     
-                    // Görev bilgilerini al
-                    firestore.collection("tasks").document(taskId).get()
-                        .addOnSuccessListener { document ->
-                            if (document != null && document.exists()) {
-                                // Görev puanını al (varsayılan olarak 100 puan)
-                                val points = document.getLong("points")?.toInt() ?: 100
-                                
-                                // Kullanıcıya puanları ekle
-                                addPointsToUser(userId, points)
-                                
-                                // Başarı mesajı
-                                Toast.makeText(this, "Görev tamamlandı! +$points puan kazandınız.", 
-                                    Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(this, "Görev tamamlandı! Puan eklendi.", 
-                                    Toast.LENGTH_LONG).show()
-                            }
+                    // Görevi Firestore'da tamamlanmış olarak işaretle
+                    firestore.collection("tasks").document(taskId)
+                        .update(
+                            mapOf(
+                                "status" to "completed",
+                                "isCompleted" to true,
+                                "completedAt" to System.currentTimeMillis(),
+                                "completedByUserId" to userId
+                            )
+                        )
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Görev tamamlandı olarak işaretlendi: $taskId")
+                            
+                            // Kullanıcıya puanları ekle
+                            addPointsToUser(userId, points)
+                            
+                            // Başarı mesajı
+                            Toast.makeText(this, "Görev tamamlandı! +$points puan kazandınız.", 
+                                Toast.LENGTH_LONG).show()
                         }
                         .addOnFailureListener { e ->
-                            Log.e(TAG, "Görev bilgileri alınamadı: ${e.message}")
-                            Toast.makeText(this, "Görev tamamlandı!", Toast.LENGTH_LONG).show()
+                            Log.e(TAG, "Görev tamamlama işaretlemesi başarısız: ${e.message}")
+                            // Yine de puanları ekle
+                            addPointsToUser(userId, points)
+                            Toast.makeText(this, "Görev durumu güncellenemedi, ancak puanlarınız eklendi: +$points", 
+                                Toast.LENGTH_LONG).show()
                         }
                 }
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "Görev tamamlama işaretlemesi başarısız: ${e.message}")
+                    Log.e(TAG, "Görev bilgileri alınamadı: ${e.message}")
+                    // Hata durumunda varsayılan puan ekle
+                    addPointsToUser(userId, 100)
+                    
+                    // Varsayılan puan ile görev tamamlama
+                    firestore.collection("tasks").document(taskId)
+                        .update(
+                            mapOf(
+                                "status" to "completed",
+                                "isCompleted" to true,
+                                "completedAt" to System.currentTimeMillis(),
+                                "completedByUserId" to userId
+                            )
+                        )
+                        .addOnSuccessListener {
+                            Toast.makeText(this, "Görev tamamlandı! +100 puan kazandınız.", 
+                                Toast.LENGTH_LONG).show()
+                        }
+                        .addOnFailureListener { updateError ->
+                            Log.e(TAG, "Görev güncellenemedi: ${updateError.message}")
+                            Toast.makeText(this, "Görev durumu güncellenemedi, ancak puanlarınız eklendi.", 
+                                Toast.LENGTH_LONG).show()
+                        }
                 }
+                
         } catch (e: Exception) {
             Log.e(TAG, "Görev tamamlama işlemi sırasında hata: ${e.message}")
+            // Hata durumunda da puanları ekle
+            addPointsToUser(userId, 100)
+            Toast.makeText(this, "Bir hata oluştu, ancak puanlarınız eklendi.", 
+                Toast.LENGTH_LONG).show()
         }
     }
     
@@ -619,6 +690,9 @@ class CameraActivity : AppCompatActivity() {
                         .update("points", newPoints)
                         .addOnSuccessListener {
                             Log.d(TAG, "Kullanıcı puanı güncellendi: $newPoints (+$points)")
+                            
+                            // Haftalık skor tablosunu güncelle
+                            updateWeeklyScore(userId, points)
                         }
                         .addOnFailureListener { e ->
                             Log.e(TAG, "Puan güncellemesi başarısız: ${e.message}")
@@ -639,10 +713,75 @@ class CameraActivity : AppCompatActivity() {
         }
     }
     
+    private fun updateWeeklyScore(userId: String, points: Int) {
+        try {
+            // Haftalık skor koleksiyonunda kullanıcı belgesi referansı
+            val weeklyScoreRef = firestore.collection("weekly_scores").document(userId)
+            
+            // İlgili belgeyi al ve güncelle
+            weeklyScoreRef.get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        // Mevcut puanı al
+                        val currentScore = document.getLong("score")?.toInt() ?: 0
+                        val newScore = currentScore + points
+                        
+                        // Puanı güncelle
+                        weeklyScoreRef.update("score", newScore)
+                            .addOnSuccessListener {
+                                Log.d(TAG, "Haftalık skor güncellendi: $newScore (+$points)")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Haftalık skor güncellenemedi: ${e.message}")
+                            }
+                    } else {
+                        // Belge yoksa yeni oluştur
+                        val weeklyScoreData = hashMapOf(
+                            "userId" to userId,
+                            "score" to points,
+                            "username" to (auth.currentUser?.displayName ?: "Anonim Kullanıcı"),
+                            "updatedAt" to System.currentTimeMillis()
+                        )
+                        
+                        weeklyScoreRef.set(weeklyScoreData)
+                            .addOnSuccessListener {
+                                Log.d(TAG, "Haftalık skor belgesi oluşturuldu: $points")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Haftalık skor belgesi oluşturulamadı: ${e.message}")
+                            }
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Haftalık skor alınamadı: ${e.message}")
+                    
+                    // Hata durumunda yeni belge oluşturmayı dene
+                    val weeklyScoreData = hashMapOf(
+                        "userId" to userId,
+                        "score" to points,
+                        "username" to (auth.currentUser?.displayName ?: "Anonim Kullanıcı"),
+                        "updatedAt" to System.currentTimeMillis()
+                    )
+                    
+                    weeklyScoreRef.set(weeklyScoreData)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Hata sonrası haftalık skor belgesi oluşturuldu: $points")
+                        }
+                        .addOnFailureListener { setError ->
+                            Log.e(TAG, "Haftalık skor belgesi kesinlikle oluşturulamadı: ${setError.message}")
+                        }
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Haftalık skor güncelleme işlemi sırasında genel hata: ${e.message}")
+        }
+    }
+    
     private fun createUserPointsDocument(userId: String, points: Int) {
         // Kullanıcı puanları dokümanı yoksa oluştur
         val userData = hashMapOf(
+            "userId" to userId,
             "points" to points,
+            "displayName" to (auth.currentUser?.displayName ?: "Anonim Kullanıcı"),
             "updatedAt" to System.currentTimeMillis()
         )
         
@@ -650,6 +789,9 @@ class CameraActivity : AppCompatActivity() {
             .set(userData)
             .addOnSuccessListener {
                 Log.d(TAG, "Kullanıcı puanları dokümanı oluşturuldu: $points")
+                
+                // Haftalık skorları da güncelle
+                updateWeeklyScore(userId, points)
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Kullanıcı puanları dokümanı oluşturulamadı: ${e.message}")

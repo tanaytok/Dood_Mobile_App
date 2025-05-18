@@ -409,30 +409,58 @@ class TasksViewModel : ViewModel() {
         _selectedTask.value = task
     }
 
-    fun updateTaskProgress(taskId: String, newCount: Int) {
-        val currentTasks = _tasks.value ?: return
-        val taskIndex = currentTasks.indexOfFirst { it.id == taskId }
+    fun updateTaskProgress(taskId: String, newCount: Int, isCompleted: Boolean) {
+        Log.d(TAG, "updateTaskProgress çağrıldı: taskId=$taskId, newCount=$newCount, isCompleted=$isCompleted")
         
-        if (taskIndex != -1) {
-            val updatedTasks = currentTasks.toMutableList()
-            val currentTask = updatedTasks[taskIndex]
+        if (taskId.isEmpty()) {
+            Log.e(TAG, "updateTaskProgress: taskId boş, güncelleme yapılamıyor")
+            return
+        }
+        
+        try {
+            // Mevcut görevleri güncelle - daha hızlı UI yanıtı için
+            val currentTasks = _tasks.value?.toMutableList() ?: mutableListOf()
+            val taskIndex = currentTasks.indexOfFirst { it.id == taskId }
             
-            val updatedTask = currentTask.copy(
-                completedCount = newCount,
-                isCompleted = newCount >= currentTask.totalCount
+            if (taskIndex != -1) {
+                // Görevi UI'da güncelle
+                val updatedTask = currentTasks[taskIndex].copy(
+                    completedCount = newCount,
+                    isCompleted = isCompleted
+                )
+                currentTasks[taskIndex] = updatedTask
+                _tasks.value = currentTasks
+                
+                Log.d(TAG, "Görev yerel olarak güncellendi: $updatedTask")
+            }
+            
+            // Firestore'da güncelle
+            val taskRef = firestore.collection("tasks").document(taskId)
+            val updates = hashMapOf<String, Any>(
+                "completedCount" to newCount,
+                "isCompleted" to isCompleted
             )
             
-            updatedTasks[taskIndex] = updatedTask
-            _tasks.value = updatedTasks
-            
-            // Firestore'da güncelleyelim (eğer gerçek bir görev ise)
-            updateTaskInFirestore(updatedTask)
-            
-            // Eğer görev tamamlandıysa kullanıcıya puanları veriyoruz
-            if (updatedTask.isCompleted && !currentTask.isCompleted) {
-                addPointsToUser(updatedTask.points)
-                incrementUserStreak()
+            // Tamamlanmışsa ek bilgiler ekle
+            if (isCompleted) {
+                updates["status"] = "completed"
+                updates["completedAt"] = System.currentTimeMillis()
             }
+            
+            taskRef.update(updates)
+                .addOnSuccessListener {
+                    Log.d(TAG, "Görev Firestore'da güncellendi: taskId=$taskId, newCount=$newCount, isCompleted=$isCompleted")
+                    
+                    // Görevleri yenile
+                    loadTasks()
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Görev güncellenirken hata: ${e.message}", e)
+                    _errorMessage.value = "Görev güncellenirken hata oluştu: ${e.message}"
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "updateTaskProgress sırasında hata: ${e.message}", e)
+            _errorMessage.value = "Görev güncellenirken hata oluştu: ${e.message}"
         }
     }
     

@@ -54,7 +54,7 @@ class TaskGeneratorWorker(
             // Gemini API'yi kullanarak görevleri oluştur
             val tasks = generateTasksWithGemini()
             if (tasks.isEmpty()) {
-                Log.e(TAG, "Gemini API görev oluşturamadı")
+                Log.e(TAG, "Gemini API görev oluşturamadı veya yeterli görev sayısına ulaşılamadı. Tekrar deneniyor.")
                 return@withContext Result.retry()
             }
             
@@ -74,16 +74,27 @@ class TaskGeneratorWorker(
                 )
             }
             
-            dailyTasksRef.set(
-                mapOf(
-                    "date" to com.google.firebase.Timestamp(Date()),
-                    "tasks" to tasksList,
-                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                )
-            ).await()
+            // API'den tam olarak 3 görev geldiğini doğrula
+            if (tasksList.size < 3) {
+                Log.e(TAG, "API'den beklenenden az görev geldi (${tasksList.size}/3). Tekrar deneniyor.")
+                return@withContext Result.retry()
+            }
             
-            Log.d(TAG, "Günlük görevler başarıyla oluşturuldu: $dateString")
-            Result.success()
+            try {
+                dailyTasksRef.set(
+                    mapOf(
+                        "date" to com.google.firebase.Timestamp(Date()),
+                        "tasks" to tasksList,
+                        "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                ).await()
+                
+                Log.d(TAG, "Günlük görevler başarıyla oluşturuldu: $dateString")
+                Result.success()
+            } catch (e: Exception) {
+                Log.e(TAG, "Görevler Firestore'a kaydedilirken hata: ${e.message}", e)
+                Result.retry()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Görev oluşturma hatası: ${e.message}", e)
             Result.retry()
@@ -94,36 +105,42 @@ class TaskGeneratorWorker(
         try {
             val prompt = """
                 Günlük hayatta kolayca bulunabilecek nesnelerin veya durumların fotoğrafını çekme görevleri oluştur.
-                Bu görevler insanların ev, okul veya sokakta kolayca tamamlayabileceği basit ve FARKLI görevler olmalı.
+                Bu görevler, kullanıcıyı hem ev içinde hem de dışarıda (sokak, park, alışveriş merkezi gibi yerlerde) 
+                aktif olmaya teşvik eden, çeşitli ve ilgi çekici görevler olmalı.
                 
-                ÇOK ÖNEMLİ: Her görev diğerlerinden açıkça farklı olmalı ve birbirini tekrar etmemeli.
-                HER GÖREV BENZERSİZ OLMALI ve farklı kategorilerden seçilmeli.
-                Örneğin, birden fazla yiyecek görevi veya birden fazla renk görevi olmamalı.
+                ÇOK ÖNEMLİ KURALLAR:
+                1. Her görev diğerlerinden açıkça farklı olmalı ve birbirini tekrar etmemeli.
+                2. HER GÖREV BENZERSİZ OLMALI ve farklı kategorilerden seçilmeli.
+                3. Görevlerin yaklaşık %60'ı kullanıcıyı evden dışarı çıkarmaya teşvik etmeli (dışarıda fotoğraf çekme, doğa, yürüyüş vb.)
+                4. Görevler, kullanıcıya neşe, heyecan ve keşif duygusu vermeli.
+                5. Görevler basit ancak ilgi çekici olmalı, kullanıcıyı fiziksel olarak aktif olmaya yönlendirmeli.
                 
-                Görevler, kullanıcıların günlük hayatlarında kolayca bulabilecekleri ve fotoğraflayabilecekleri nesneler veya durumlar olmalı.
                 Her görev Türkçe, kısa ve anlaşılır bir cümle olmalı.
                 
-                Farklı kategorilerden görev örnekleri:
-                - "2 adet kırmızı nesne fotoğrafla" (renk kategorisi)
-                - "Bir ağaç fotoğrafla" (doğa kategorisi)
-                - "Evdeki bir elektronik cihazı fotoğrafla" (elektronik kategorisi)
-                - "Bir çiçek fotoğrafla" (bitki kategorisi)
-                - "Masa üzerindeki 3 farklı nesneyi fotoğrafla" (yer kategorisi)
-                - "Bir kitap fotoğrafla" (eğitim kategorisi)
-                - "Gökyüzü fotoğrafla" (hava kategorisi)
+                Dış mekan görev örnekleri:
+                - "Bir park veya bahçeden manzara fotoğrafla" (doğa kategorisi)
+                - "Sokakta yürüyen bir evcil hayvan fotoğrafla" (evcil hayvan kategorisi)
+                - "Dışarıda ilginç bir mimari detay fotoğrafla" (mimari kategorisi)
+                - "Bulutlu gökyüzü fotoğrafla" (hava kategorisi)
                 - "Bir sokak tabelası fotoğrafla" (şehir kategorisi)
-                - "Dışarıda park edilmiş bir araç fotoğrafla" (ulaşım kategorisi)
-                - "Bir kap içinde su fotoğrafla" (sıvı kategorisi)
-                - "Bir müzik aleti fotoğrafla" (müzik kategorisi)
-                - "Bir spor ekipmanı fotoğrafla" (spor kategorisi)
-                - "Yuvarlak şekilli bir nesne fotoğrafla" (şekil kategorisi)
-                - "Üzerinde yazı olan bir nesne fotoğrafla" (yazı kategorisi)
-                - "Mutfakta kullanılan bir eşya fotoğrafla" (mutfak kategorisi)
-                - "İki farklı ayakkabı fotoğrafla" (kıyafet kategorisi)
-                - "Bir bardak içecek fotoğrafla" (içecek kategorisi)
-                - "Dışarıda bir bina fotoğrafla" (mimari kategorisi)
+                - "Dışarıda park edilmiş renkli bir araç fotoğrafla" (ulaşım kategorisi)
+                - "Bir çiçek veya ağaç fotoğrafla" (bitki kategorisi)
+                - "3 adet kırmızı araba fotoğrafla" (otomobil kategorisi)
+                - "Halka açık bir alanda bulunan bir heykel veya sanat eseri fotoğrafla" (sanat kategorisi)
+                - "Bir cafe veya restoran tabelası fotoğrafla" (yeme-içme kategorisi)
+                - "Dışarıda gördüğün ilginç bir tabela ya da yazı fotoğrafla" (yazı kategorisi)
+                - "Parkta bir spor ekipmanı fotoğrafla" (spor kategorisi)
                 
-                Tam olarak 3 farklı kategori ve farklı konularda görev oluştur. İçlerinden hiçbir ikisi benzer olmamalı.
+                İç mekan görev örnekleri:
+                - "Evdeki favori kitabını fotoğrafla" (eğitim kategorisi)
+                - "Mutfakta kullandığın bir aletin fotoğrafını çek" (mutfak kategorisi)
+                - "Odanın en renkli köşesini fotoğrafla" (iç mekan kategorisi)
+                - "Evdeki en sevdiğin tabloyu fotoğrafla" (dekorasyon kategorisi)
+                - "Kullandığın bir teknolojik cihazı fotoğrafla" (teknoloji kategorisi)
+                - "Evde yaptığın bir yemeği veya içeceği fotoğrafla" (yemek kategorisi)
+                - "Evdeki en eski eşyayı fotoğrafla" (nostalji kategorisi)
+                
+                Tam olarak 3 farklı kategoriden görev oluştur. Bunlardan en az 1 veya 2 tanesi dış mekan görevi olmalı.
                 Her görev için gereken fotoğraf sayısı (1-3 arasında) belirtin.
                 Sadece 3 benzersiz görevi JSON formatında döndür:
                 [
@@ -188,19 +205,8 @@ class TaskGeneratorWorker(
                 if (taskList.size >= 3) {
                     return taskList.take(3)
                 } else if (taskList.isNotEmpty()) {
-                    // Eğer 3'ten az benzersiz görev bulunduysa, varsayılan görevlerle tamamla
-                    val result = taskList.toMutableList()
-                    val defaultTasks = getDefaultTasks()
-                    
-                    // Eksik görevleri varsayılan görevlerle doldur
-                    for (defaultTask in defaultTasks) {
-                        if (result.size >= 3) break
-                        if (result.none { it.title == defaultTask.title }) {
-                            result.add(defaultTask)
-                        }
-                    }
-                    
-                    return result
+                    Log.w(TAG, "Gemini API yeterli görev oluşturamadı (${taskList.size}/3). Tekrar deneniyor.")
+                    return emptyList() // Yetersiz görev sayısında boş liste döndür (retry tetiklenecek)
                 }
             } catch (e: JSONException) {
                 Log.d(TAG, "Doğrudan JSON parse edilemedi, regex ile deneniyor: ${e.message}")
@@ -228,47 +234,27 @@ class TaskGeneratorWorker(
                 taskList.add(TaskResponse(title, totalCount))
             }
             
-            // Başarısız olursa veya yeterli benzersiz görev bulunamazsa varsayılan görevleri kullan
+            // Yeterince görev yoksa boş liste döndür (retry tetiklenecek)
             if (taskList.size < 3) {
-                Log.w(TAG, "Yeterli benzersiz görev bulunamadı, varsayılan görevlerle tamamlanıyor")
-                val result = taskList.toMutableList()
-                val defaultTasks = getDefaultTasks()
-                
-                // Eksik görevleri varsayılan görevlerle doldur
-                for (defaultTask in defaultTasks) {
-                    if (result.size >= 3) break
-                    if (result.none { it.title == defaultTask.title }) {
-                        result.add(defaultTask)
-                    }
-                }
-                
-                return result
+                Log.w(TAG, "Gemini API yeterli görev oluşturamadı (${taskList.size}/3). Tekrar deneniyor.")
+                return emptyList()
             }
             
             // Benzersiz 3 görevi döndür
             taskList.take(3)
         } catch (e: JSONException) {
             Log.e(TAG, "JSON ayrıştırma hatası: ${e.message}", e)
-            // Varsayılan görevleri döndür
-            getDefaultTasks()
+            // JSON ayrıştırma hatasında da boş liste döndür (retry tetiklenecek)
+            emptyList()
         }
     }
     
     /**
-     * Varsayılan görevleri döndürür
+     * Varsayılan görevleri döndürür - Artık kullanılmıyor, tüm görevler API'den geliyor
+     * Not: Bu metod artık kullanılmıyor, ancak kodun temiz tutulması için referansı korundu.
      */
     private fun getDefaultTasks(): List<TaskResponse> {
-        return listOf(
-            TaskResponse("Kırmızı bir nesne fotoğrafla", 1),
-            TaskResponse("Evdeki bir elektronik aletini fotoğrafla", 1),
-            TaskResponse("Bir çift ayakkabı fotoğrafla", 1),
-            TaskResponse("Ağaç veya bitki fotoğrafla", 1),
-            TaskResponse("Mavi renkli bir eşya fotoğrafla", 1),
-            TaskResponse("Masa üzerindeki üç farklı nesneyi fotoğrafla", 3),
-            TaskResponse("En sevdiğin yiyeceği fotoğrafla", 1),
-            TaskResponse("Kitap veya dergi fotoğrafla", 1),
-            TaskResponse("Evcil hayvan veya dışarıda bir hayvan fotoğrafla", 1),
-            TaskResponse("İki farklı renkteki kalem veya kırtasiye ürünü fotoğrafla", 2)
-        )
+        Log.w(TAG, "getDefaultTasks metodu artık kullanılmıyor, tüm görevler API'den geliyor.")
+        return emptyList()
     }
 } 

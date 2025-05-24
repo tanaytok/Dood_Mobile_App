@@ -217,13 +217,16 @@ class HomeFragment : Fragment() {
     
     private fun showCommentsDialog(post: PostModel) {
         context?.let { ctx ->
-            // Dialog oluştur
-            val dialog = Dialog(ctx, R.style.AppTheme_Dialog)
+            // Bottom Sheet olarak göstermek için Dialog oluştur
+            val dialog = Dialog(ctx, R.style.BottomSheetDialogTheme)
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
             dialog.setContentView(R.layout.dialog_comments)
             dialog.window?.apply {
-                setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT)
+                setGravity(android.view.Gravity.BOTTOM)
+                attributes.windowAnimations = R.style.BottomSheetAnimation
                 setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             }
             
             // Dialog bileşenlerini bul
@@ -235,7 +238,7 @@ class HomeFragment : Fragment() {
             val titleText = dialog.findViewById<TextView>(R.id.text_title)
             
             // Başlığı ayarla
-            titleText.text = "${post.username} Gönderisine Yorumlar"
+            titleText.text = "${post.username}'in Yorumları"
             
             // Yorum adaptörünü ayarla
             commentAdapter = CommentAdapter(

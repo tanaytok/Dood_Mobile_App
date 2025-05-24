@@ -93,7 +93,9 @@ class UserSearchAdapter(
 
             // Tıklama olaylarını ayarla
             itemView.setOnClickListener {
-                onUserClicked(user)
+                if (!user.userId.isNullOrEmpty()) {
+                    onUserClicked(user)
+                }
             }
 
             buttonFollow.setOnClickListener {

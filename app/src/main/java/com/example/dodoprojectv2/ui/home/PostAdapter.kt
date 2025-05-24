@@ -1,6 +1,7 @@
 package com.example.dodoprojectv2.ui.home
 
 import android.text.format.DateFormat
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -113,11 +114,27 @@ class PostAdapter(
 
             // Tıklama olaylarını ayarla
             imageUserProfile.setOnClickListener {
-                onUserClicked(post.userId)
+                try {
+                    if (!post.userId.isNullOrEmpty()) {
+                        onUserClicked(post.userId)
+                    } else {
+                        Log.e("PostAdapter", "Kullanıcı ID boş veya null")
+                    }
+                } catch (e: Exception) {
+                    Log.e("PostAdapter", "Kullanıcı profiline gitme hatası: ${e.message}", e)
+                }
             }
 
             textUsername.setOnClickListener {
-                onUserClicked(post.userId)
+                try {
+                    if (!post.userId.isNullOrEmpty()) {
+                        onUserClicked(post.userId)
+                    } else {
+                        Log.e("PostAdapter", "Kullanıcı ID boş veya null")
+                    }
+                } catch (e: Exception) {
+                    Log.e("PostAdapter", "Kullanıcı profiline gitme hatası: ${e.message}", e)
+                }
             }
 
             imagePost.setOnClickListener {

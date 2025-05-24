@@ -52,7 +52,9 @@ class LikeUserAdapter(
 
             // Tıklama olayını ayarla
             itemView.setOnClickListener {
-                onUserClicked(user.userId)
+                if (!user.userId.isNullOrEmpty()) {
+                    onUserClicked(user.userId)
+                }
             }
         }
     }

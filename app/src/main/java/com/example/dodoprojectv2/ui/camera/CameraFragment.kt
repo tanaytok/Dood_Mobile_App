@@ -14,7 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.example.dodoprojectv2.R
 import com.example.dodoprojectv2.databinding.FragmentCameraBinding
-import com.example.dodoprojectv2.ui.profile.ProfileFragment
+import com.example.dodoprojectv2.ui.UserProfilePopup
 
 class CameraFragment : Fragment() {
 
@@ -147,19 +147,20 @@ class CameraFragment : Fragment() {
     }
     
     private fun navigateToUserProfile(userId: String) {
+        // Null veya boş userId kontrolü
+        if (userId.isNullOrEmpty()) {
+            Log.e(TAG, "navigateToUserProfile: userId boş veya null")
+            return
+        }
+        
         try {
-            val fragment = ProfileFragment()
-            val bundle = Bundle()
-            bundle.putString("userId", userId)
-            fragment.arguments = bundle
-            
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_activity_main, fragment)
-                .addToBackStack(null)
-                .commit()
+            context?.let { ctx ->
+                val userProfilePopup = UserProfilePopup(ctx)
+                userProfilePopup.showUserProfile(userId)
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Kullanıcı profiline giderken hata: ${e.message}", e)
-            Toast.makeText(context, "Kullanıcı profiline gidilemedi", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Kullanıcı profili popup gösterilirken hata: ${e.message}", e)
+            Toast.makeText(context, "Kullanıcı profili açılamadı", Toast.LENGTH_SHORT).show()
         }
     }
 

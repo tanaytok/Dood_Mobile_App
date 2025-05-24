@@ -17,6 +17,7 @@ import android.widget.ImageButton
 import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -26,6 +27,8 @@ import com.example.dodoprojectv2.R
 import com.example.dodoprojectv2.databinding.FragmentHomeBinding
 import com.example.dodoprojectv2.ui.profile.ProfileFragment
 import com.google.android.material.snackbar.Snackbar
+import androidx.navigation.Navigation
+import com.example.dodoprojectv2.ui.UserProfilePopup
 
 class HomeFragment : Fragment() {
 
@@ -101,8 +104,8 @@ class HomeFragment : Fragment() {
         // Arama sonuçları için RecyclerView
         userSearchAdapter = UserSearchAdapter(
             onUserClicked = { user ->
-                // Kullanıcı profiline gitme işlemini kaldırdık
-                // Burada hiçbir şey yapmıyoruz
+                // Kullanıcı profiline gitme
+                navigateToUserProfile(user.userId)
             },
             onFollowClicked = { user, isFollowing ->
                 // Takip et/bırak
@@ -208,17 +211,21 @@ class HomeFragment : Fragment() {
     }
     
     private fun navigateToUserProfile(userId: String) {
-        // TODO: Kullanıcı profiline yönlendirme mantığını ekle
-        // Bu geçici bir çözümdür - gerçek uygulamada farklı kullanıcı profillerini görüntüleme mantığı eklenmelidir
-        val fragment = ProfileFragment()
-        val bundle = Bundle()
-        bundle.putString("userId", userId)
-        fragment.arguments = bundle
+        // Null veya boş userId kontrolü
+        if (userId.isNullOrEmpty()) {
+            Log.e(TAG, "navigateToUserProfile: userId boş veya null")
+            return
+        }
         
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_activity_main, fragment)
-            .addToBackStack(null)
-            .commit()
+        try {
+            context?.let { ctx ->
+                val userProfilePopup = UserProfilePopup(ctx)
+                userProfilePopup.showUserProfile(userId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Kullanıcı profili popup gösterilirken hata: ${e.message}", e)
+            Toast.makeText(context, "Kullanıcı profili açılamadı", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun showCommentsDialog(post: PostModel) {

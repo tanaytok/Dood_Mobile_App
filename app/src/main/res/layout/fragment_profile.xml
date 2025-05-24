@@ -74,6 +74,22 @@
         app:layout_constraintTop_toBottomOf="@+id/text_username"
         tools:text="Burası kullanıcının biyografi alanıdır. Maksimum 80 karakter içerebilir." />
 
+    <!-- Takip Et Butonu -->
+    <Button
+        android:id="@+id/button_follow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="100dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="100dp"
+        android:background="@drawable/button_background"
+        android:text="Takip Et"
+        android:textColor="@android:color/white"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/text_bio" />
+
     <LinearLayout
         android:id="@+id/layout_stats"
         android:layout_width="match_parent"
@@ -85,7 +101,7 @@
         android:weightSum="3"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/text_bio">
+        app:layout_constraintTop_toBottomOf="@+id/button_follow">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -204,6 +220,20 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/recycler_view_photos" />
 
+    <!-- Görmek için takip et mesajı -->
+    <TextView
+        android:id="@+id/text_follow_to_see"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="Bu kullanıcının gönderilerini görmek için\ntakip etmelisiniz"
+        android:textSize="16sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/recycler_view_photos"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/recycler_view_photos" />
+
     <ProgressBar
         android:id="@+id/progress_photos"
         style="?android:attr/progressBarStyle"
@@ -214,5 +244,16 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/recycler_view_photos" />
+
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        style="?android:attr/progressBarStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout> 

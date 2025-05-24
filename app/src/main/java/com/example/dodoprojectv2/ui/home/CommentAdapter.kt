@@ -1,5 +1,6 @@
 package com.example.dodoprojectv2.ui.home
 
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -58,11 +59,27 @@ class CommentAdapter(
 
             // Kullanıcıya tıklama olayını ayarla
             imageUserProfile.setOnClickListener {
-                onUserClicked(comment.userId)
+                try {
+                    if (!comment.userId.isNullOrEmpty()) {
+                        onUserClicked(comment.userId)
+                    } else {
+                        Log.e("CommentAdapter", "Kullanıcı ID boş veya null")
+                    }
+                } catch (e: Exception) {
+                    Log.e("CommentAdapter", "Kullanıcı profiline gitme hatası: ${e.message}", e)
+                }
             }
             
             textUsername.setOnClickListener {
-                onUserClicked(comment.userId)
+                try {
+                    if (!comment.userId.isNullOrEmpty()) {
+                        onUserClicked(comment.userId)
+                    } else {
+                        Log.e("CommentAdapter", "Kullanıcı ID boş veya null")
+                    }
+                } catch (e: Exception) {
+                    Log.e("CommentAdapter", "Kullanıcı profiline gitme hatası: ${e.message}", e)
+                }
             }
         }
     }

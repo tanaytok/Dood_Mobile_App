@@ -12,7 +12,9 @@ import com.example.dodoprojectv2.R
 /**
  * Skor tablosundaki kullanıcıları listelemek için kullanılan adapter
  */
-class LeaderboardAdapter : RecyclerView.Adapter<LeaderboardAdapter.ViewHolder>() {
+class LeaderboardAdapter(
+    private val onUserClicked: (String) -> Unit
+) : RecyclerView.Adapter<LeaderboardAdapter.ViewHolder>() {
     
     private var users: List<LeaderboardUser> = emptyList()
     
@@ -69,6 +71,19 @@ class LeaderboardAdapter : RecyclerView.Adapter<LeaderboardAdapter.ViewHolder>()
                 2 -> textRank.setTextColor(itemView.context.getColor(android.R.color.darker_gray))
                 3 -> textRank.setTextColor(itemView.context.getColor(android.R.color.holo_orange_dark))
                 else -> textRank.setTextColor(itemView.context.getColor(android.R.color.black))
+            }
+            
+            // Kullanıcı adına ve profil fotoğrafına tıklama olayı ekle
+            textUsername.setOnClickListener {
+                if (!user.userId.isNullOrEmpty()) {
+                    onUserClicked(user.userId)
+                }
+            }
+            
+            imageProfile.setOnClickListener {
+                if (!user.userId.isNullOrEmpty()) {
+                    onUserClicked(user.userId)
+                }
             }
         }
     }

@@ -41,6 +41,8 @@ import java.util.Calendar
 import android.widget.PopupWindow
 import com.example.dodoprojectv2.ui.home.LikeUserAdapter
 import com.example.dodoprojectv2.ui.home.LikeUserModel
+import androidx.navigation.Navigation
+import com.example.dodoprojectv2.ui.UserProfilePopup
 
 class ProfileFragment : Fragment() {
 
@@ -54,6 +56,8 @@ class ProfileFragment : Fragment() {
     
     private var selectedImageUri: Uri? = null
     private lateinit var photoAdapter: PhotoAdapter
+    
+    private lateinit var progressBar: ProgressBar
     
     private val TAG = "ProfileFragment"
     
@@ -73,12 +77,17 @@ class ProfileFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         Log.d(TAG, "onCreateView başladı")
-        profileViewModel = ViewModelProvider(this).get(ProfileViewModel::class.java)
-        
-        _binding = FragmentProfileBinding.inflate(inflater, container, false)
-        val root: View = binding.root
         
         try {
+            profileViewModel = ViewModelProvider(this).get(ProfileViewModel::class.java)
+            
+            _binding = FragmentProfileBinding.inflate(inflater, container, false)
+            val root: View = binding.root
+            
+            // Önce loading göster
+            progressBar = binding.root.findViewById(R.id.progress_bar)
+            progressBar.visibility = View.VISIBLE
+            
             // Initialize Firebase components
             auth = FirebaseAuth.getInstance()
             firestore = FirebaseFirestore.getInstance()
@@ -89,14 +98,47 @@ class ProfileFragment : Fragment() {
             
             setupUIElements()
             setupRecyclerView()
-            loadUserProfile()
-            loadUserPhotos()
+            
+            // Argüman olarak userId geldi mi kontrol et
+            val userId = arguments?.getString("userId")
+            Log.d(TAG, "Gelen userId: $userId, Mevcut kullanıcı: ${auth.currentUser?.uid}")
+            
+            // Geçerli userId yoksa veya kendi ID'mize eşitse kendi profilimizi göster
+            if (userId.isNullOrEmpty() || userId == auth.currentUser?.uid) {
+                Log.d(TAG, "Kendi profilimizi görüntülüyoruz")
+                // Kendi profilimizi görüntülüyoruz
+                loadUserProfile()
+                loadUserPhotos()
+                hideFollowButton()
+            } else {
+                Log.d(TAG, "Başka bir kullanıcının profilini görüntülüyoruz: $userId")
+                // Başka bir kullanıcının profili görüntüleniyor
+                loadUserProfile(userId)
+                loadUserPhotos(userId)
+                setupFollowButton(userId)
+            }
+            
+            return root
         } catch (e: Exception) {
             Log.e(TAG, "Fragment oluşturulurken hata oluştu: ${e.message}", e)
-            Toast.makeText(context, "Bir hata oluştu: ${e.message}", Toast.LENGTH_LONG).show()
+            
+            // Eğer binding oluşturulduysa ve kontekst mevcutsa hata mesajı göster
+            if (_binding != null && context != null) {
+                Toast.makeText(context, "Bir hata oluştu: ${e.message}", Toast.LENGTH_LONG).show()
+                progressBar.visibility = View.GONE
+            }
+            
+            // Hata durumunda da bir View döndürmemiz gerekli
+            if (_binding != null) {
+                return binding.root
+            } else {
+                // Binding oluşturulamadıysa varsayılan layout oluştur
+                val fallbackView = TextView(context)
+                fallbackView.text = "Profil yüklenemedi"
+                fallbackView.gravity = android.view.Gravity.CENTER
+                return fallbackView
+            }
         }
-        
-        return root
     }
     
     private fun setDummyData() {
@@ -155,125 +197,216 @@ class ProfileFragment : Fragment() {
         }
     }
     
-    private fun loadUserProfile() {
+    private fun loadUserProfile(userId: String? = null) {
         try {
             Log.d(TAG, "Kullanıcı profili yükleniyor")
             val currentUser = auth.currentUser
             
-            if (currentUser != null) {
-                Log.d(TAG, "Giriş yapmış kullanıcı bulundu: ${currentUser.email}")
-                val userId = currentUser.uid
-                
-                // Get user data from Firestore
-                firestore.collection("users").document(userId)
-                    .get()
-                    .addOnSuccessListener { document ->
-                        try {
-                            Log.d(TAG, "Firestore verisi başarıyla alındı")
-                            if (document != null && document.exists()) {
-                                Log.d(TAG, "Firestore dokümanı mevcut")
-                                // Username
-                                val username = document.getString("username")
-                                Log.d(TAG, "Kullanıcı adı: $username")
-                                binding.textUsername.text = username
-                                
-                                // Bio
-                                val bio = document.getString("bio") ?: "Biyografi eklenmemiş"
-                                Log.d(TAG, "Biyografi: $bio")
-                                binding.textBio.text = bio
-                                
-                                // Stats
-                                val streak = document.getLong("streak") ?: 0
-                                Log.d(TAG, "Seri: $streak")
-                                binding.textStreakCount.text = streak.toString()
-                                
-                                val followers = document.getLong("followers") ?: 0
-                                Log.d(TAG, "Takipçi: $followers")
-                                binding.textFollowersCount.text = followers.toString()
-                                
-                                val following = document.getLong("following") ?: 0
-                                Log.d(TAG, "Takip: $following")
-                                binding.textFollowingCount.text = following.toString()
-                                
-                                // Profile photo
-                                val profilePhotoUrl = document.getString("profilePhotoUrl")
-                                Log.d(TAG, "Profil foto URL: $profilePhotoUrl")
-                                if (profilePhotoUrl != null && profilePhotoUrl.isNotEmpty()) {
-                                    Glide.with(this)
-                                        .load(profilePhotoUrl)
-                                        .placeholder(R.drawable.default_profile)
-                                        .into(binding.imageProfile)
-                                }
-                            } else {
-                                Log.d(TAG, "Firestore dokümanı bulunamadı veya boş")
-                                Toast.makeText(context, "Kullanıcı verileri bulunamadı", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Firestore veri işlemede hata: ${e.message}", e)
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "Firestore verisi alınamadı: ${e.message}", e)
-                        Toast.makeText(context, "Profil bilgileri yüklenemedi: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-            } else {
-                Log.d(TAG, "Giriş yapmış kullanıcı bulunamadı")
+            if (currentUser == null) {
+                Log.e(TAG, "Giriş yapmış kullanıcı bulunamadı")
                 Toast.makeText(context, "Kullanıcı oturum açmamış", Toast.LENGTH_SHORT).show()
+                return
             }
+            
+            // Gösterilecek kullanıcı ID'si
+            val profileUserId = userId ?: currentUser.uid
+            
+            if (profileUserId.isEmpty()) {
+                Log.e(TAG, "Geçersiz kullanıcı ID: boş")
+                Toast.makeText(context, "Geçersiz kullanıcı ID", Toast.LENGTH_SHORT).show()
+                return
+            }
+            
+            Log.d(TAG, "Yüklenecek kullanıcı profili ID: $profileUserId")
+            
+            // Önce UI'ı hazırla ve loading göster
+            progressBar.visibility = View.VISIBLE
+            
+            // Get user data from Firestore
+            firestore.collection("users").document(profileUserId)
+                .get()
+                .addOnSuccessListener { document ->
+                    progressBar.visibility = View.GONE
+                    
+                    try {
+                        Log.d(TAG, "Firestore verisi başarıyla alındı")
+                        if (document != null && document.exists()) {
+                            Log.d(TAG, "Firestore dokümanı mevcut")
+                            // Username
+                            val username = document.getString("username") ?: ""
+                            Log.d(TAG, "Kullanıcı adı: $username")
+                            binding.textUsername.text = username
+                            
+                            // Bio
+                            val bio = document.getString("bio") ?: "Biyografi eklenmemiş"
+                            Log.d(TAG, "Biyografi: $bio")
+                            binding.textBio.text = bio
+                            
+                            // Stats
+                            val streak = document.getLong("streak") ?: 0
+                            Log.d(TAG, "Seri: $streak")
+                            binding.textStreakCount.text = streak.toString()
+                            
+                            val followers = document.getLong("followers") ?: 0
+                            Log.d(TAG, "Takipçi: $followers")
+                            binding.textFollowersCount.text = followers.toString()
+                            
+                            val following = document.getLong("following") ?: 0
+                            Log.d(TAG, "Takip: $following")
+                            binding.textFollowingCount.text = following.toString()
+                            
+                            // Profile photo
+                            val profilePhotoUrl = document.getString("profilePhotoUrl") ?: ""
+                            Log.d(TAG, "Profil foto URL: $profilePhotoUrl")
+                            if (profilePhotoUrl.isNotEmpty()) {
+                                context?.let { ctx ->
+                                    try {
+                                        Glide.with(ctx)
+                                            .load(profilePhotoUrl)
+                                            .placeholder(R.drawable.default_profile)
+                                            .into(binding.imageProfile)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Profil fotoğrafı yüklenirken hata: ${e.message}", e)
+                                        // Hata durumunda varsayılan resmi göster
+                                        binding.imageProfile.setImageResource(R.drawable.default_profile)
+                                    }
+                                }
+                            }
+                        } else {
+                            Log.d(TAG, "Firestore dokümanı bulunamadı veya boş")
+                            Toast.makeText(context, "Kullanıcı verileri bulunamadı", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Firestore veri işlemede hata: ${e.message}", e)
+                        Toast.makeText(context, "Profil verisi işlenirken hata: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .addOnFailureListener { e ->
+                    progressBar.visibility = View.GONE
+                    Log.e(TAG, "Firestore verisi alınamadı: ${e.message}", e)
+                    Toast.makeText(context, "Profil bilgileri yüklenemedi: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
         } catch (e: Exception) {
+            progressBar.visibility = View.GONE
             Log.e(TAG, "Kullanıcı profili yüklenirken hata: ${e.message}", e)
+            Toast.makeText(context, "Profil yüklenirken beklenmeyen hata: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
     
-    private fun loadUserPhotos() {
+    private fun loadUserPhotos(userId: String? = null) {
         try {
-            val currentUser = auth.currentUser ?: return
+            val currentUser = auth.currentUser
+            if (currentUser == null) {
+                Log.e(TAG, "Giriş yapmış kullanıcı bulunamadı")
+                Toast.makeText(context, "Kullanıcı oturum açmamış", Toast.LENGTH_SHORT).show()
+                return
+            }
             
-            binding.progressPhotos.visibility = View.VISIBLE
-            binding.textNoPhotos.visibility = View.GONE
+            // Gösterilecek kullanıcı ID'si
+            val profileUserId = userId ?: currentUser.uid
             
-            firestore.collection("user_photos")
-                .whereEqualTo("userId", currentUser.uid)
-                .whereEqualTo("isPublic", true)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(20) // Son 20 fotoğrafı getir
-                .get()
-                .addOnSuccessListener { documents ->
-                    binding.progressPhotos.visibility = View.GONE
-                    
-                    if (documents.isEmpty) {
-                        binding.textNoPhotos.visibility = View.VISIBLE
-                        return@addOnSuccessListener
-                    }
-                    
-                    val photos = documents.mapNotNull { doc ->
-                        try {
-                            UserPhoto(
-                                id = doc.id,
-                                photoUrl = doc.getString("photoUrl") ?: "",
-                                taskId = doc.getString("taskId") ?: "",
-                                taskName = doc.getString("taskName") ?: "Görev",
-                                timestamp = doc.getLong("timestamp") ?: 0,
-                                userId = doc.getString("userId") ?: ""
-                            )
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Fotoğraf verisi dönüştürülürken hata: ${e.message}", e)
-                            null
+            if (profileUserId.isEmpty()) {
+                Log.e(TAG, "Geçersiz kullanıcı ID: boş")
+                Toast.makeText(context, "Geçersiz kullanıcı ID", Toast.LENGTH_SHORT).show()
+                return
+            }
+            
+            Log.d(TAG, "Yüklenecek kullanıcı fotoğrafları ID: $profileUserId")
+            
+            // Kendi profilimizi görüntülüyorsak veya takip ettiğimiz bir kullanıcıysa
+            val isOwnProfile = profileUserId == currentUser.uid
+            
+            if (isOwnProfile) {
+                // Kendi profilimiz - direkt fotoğrafları yükle
+                loadPhotosFromFirestore(profileUserId)
+            } else {
+                // Başka birinin profili - takip durumunu kontrol et
+                firestore.collection("follows")
+                    .document("${currentUser.uid}_${profileUserId}")
+                    .get()
+                    .addOnSuccessListener { document ->
+                        val isFollowing = document.exists()
+                        
+                        if (isFollowing) {
+                            // Takip ediyorsak fotoğrafları yükle
+                            loadPhotosFromFirestore(profileUserId)
+                        } else {
+                            // Takip etmiyorsak takip et mesajını göster
+                            binding.recyclerViewPhotos.visibility = View.GONE
+                            binding.textNoPhotos.visibility = View.GONE
+                            binding.textFollowToSee.visibility = View.VISIBLE
                         }
                     }
-                    
-                    photoAdapter.updatePhotos(photos)
-                }
-                .addOnFailureListener { e ->
-                    binding.progressPhotos.visibility = View.GONE
-                    binding.textNoPhotos.visibility = View.VISIBLE
-                    Log.e(TAG, "Fotoğraflar yüklenirken hata: ${e.message}", e)
-                }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Takip durumu kontrol edilirken hata: ${e.message}", e)
+                        binding.progressPhotos.visibility = View.GONE
+                        binding.recyclerViewPhotos.visibility = View.GONE
+                        binding.textNoPhotos.visibility = View.GONE
+                        binding.textFollowToSee.visibility = View.VISIBLE
+                    }
+            }
         } catch (e: Exception) {
             binding.progressPhotos.visibility = View.GONE
-            binding.textNoPhotos.visibility = View.VISIBLE
+            binding.textNoPhotos.visibility = View.GONE
+            binding.textFollowToSee.visibility = View.GONE
             Log.e(TAG, "Fotoğraflar yüklenirken hata: ${e.message}", e)
+            Toast.makeText(context, "Fotoğraflar yüklenirken beklenmeyen hata: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+    
+    // Firestore'dan fotoğrafları yükleyen yardımcı metod
+    private fun loadPhotosFromFirestore(profileUserId: String) {
+        binding.progressPhotos.visibility = View.VISIBLE
+        binding.textNoPhotos.visibility = View.GONE
+        binding.textFollowToSee.visibility = View.GONE
+        
+        firestore.collection("user_photos")
+            .whereEqualTo("userId", profileUserId)
+            .whereEqualTo("isPublic", true)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(20) // Son 20 fotoğrafı getir
+            .get()
+            .addOnSuccessListener { documents ->
+                binding.progressPhotos.visibility = View.GONE
+                
+                if (documents.isEmpty) {
+                    binding.recyclerViewPhotos.visibility = View.VISIBLE
+                    binding.textNoPhotos.visibility = View.VISIBLE
+                    return@addOnSuccessListener
+                }
+                
+                val photos = documents.mapNotNull { doc ->
+                    try {
+                        UserPhoto(
+                            id = doc.id,
+                            photoUrl = doc.getString("photoUrl") ?: "",
+                            taskId = doc.getString("taskId") ?: "",
+                            taskName = doc.getString("taskName") ?: "Görev",
+                            timestamp = doc.getLong("timestamp") ?: 0,
+                            userId = doc.getString("userId") ?: ""
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Fotoğraf verisi dönüştürülürken hata: ${e.message}", e)
+                        null
+                    }
+                }
+                
+                if (photos.isEmpty()) {
+                    binding.recyclerViewPhotos.visibility = View.VISIBLE
+                    binding.textNoPhotos.visibility = View.VISIBLE
+                } else {
+                    binding.recyclerViewPhotos.visibility = View.VISIBLE
+                    binding.textNoPhotos.visibility = View.GONE
+                    photoAdapter.updatePhotos(photos)
+                }
+            }
+            .addOnFailureListener { e ->
+                binding.progressPhotos.visibility = View.GONE
+                binding.textNoPhotos.visibility = View.VISIBLE
+                binding.textFollowToSee.visibility = View.GONE
+                Log.e(TAG, "Fotoğraflar yüklenirken hata: ${e.message}", e)
+                Toast.makeText(context, "Fotoğraflar yüklenemedi: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
     }
     
     private fun showEditProfileDialog() {
@@ -780,15 +913,21 @@ class ProfileFragment : Fragment() {
     }
     
     private fun navigateToUserProfile(userId: String) {
-        val fragment = ProfileFragment()
-        val bundle = Bundle()
-        bundle.putString("userId", userId)
-        fragment.arguments = bundle
+        // Null veya boş userId kontrolü
+        if (userId.isNullOrEmpty()) {
+            Log.e(TAG, "navigateToUserProfile: userId boş veya null")
+            return
+        }
         
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_activity_main, fragment)
-            .addToBackStack(null)
-            .commit()
+        try {
+            context?.let { ctx ->
+                val userProfilePopup = UserProfilePopup(ctx)
+                userProfilePopup.showUserProfile(userId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Kullanıcı profili popup gösterilirken hata: ${e.message}", e)
+            Toast.makeText(context, "Kullanıcı profili açılamadı", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**
@@ -906,6 +1045,221 @@ class ProfileFragment : Fragment() {
             .addOnFailureListener { e ->
                 Log.e(TAG, "Beğeni bilgilerini yüklerken hata: ${e.message}", e)
                 callback(emptyList(), e.message)
+            }
+    }
+
+    // Takip et butonunu ayarla
+    private fun setupFollowButton(profileUserId: String) {
+        try {
+            // Takip et butonunu göster
+            binding.buttonFollow.visibility = View.VISIBLE
+            binding.buttonChangePhoto.visibility = View.GONE
+            binding.buttonEditProfileTop.visibility = View.GONE
+            
+            // Takip et butonu için tıklama olayı
+            binding.buttonFollow.setOnClickListener {
+                val isFollowing = binding.buttonFollow.text.toString() == "Takibi Bırak"
+                toggleFollow(profileUserId, isFollowing)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Takip butonunu ayarlarken hata: ${e.message}", e)
+        }
+    }
+    
+    // Takip et butonunu gizle (kendi profilimiz için)
+    private fun hideFollowButton() {
+        binding.buttonFollow.visibility = View.GONE
+        binding.buttonChangePhoto.visibility = View.VISIBLE
+        binding.buttonEditProfileTop.visibility = View.VISIBLE
+    }
+    
+    // Takip durumunu kontrol et
+    private fun checkFollowStatus(profileUserId: String) {
+        val currentUser = auth.currentUser ?: return
+        
+        firestore.collection("follows")
+            .document("${currentUser.uid}_${profileUserId}")
+            .get()
+            .addOnSuccessListener { document ->
+                val isFollowing = document.exists()
+                
+                // UI'ı güncelle
+                updateFollowButtonUI(isFollowing)
+                
+                // Takip edilmeyen profillerde fotoğrafları gizle
+                if (!isFollowing) {
+                    binding.recyclerViewPhotos.visibility = View.GONE
+                    binding.textNoPhotos.visibility = View.GONE // Henüz fotoğraf paylaşmadı mesajını gizle
+                    binding.textFollowToSee.visibility = View.VISIBLE
+                } else {
+                    binding.recyclerViewPhotos.visibility = View.VISIBLE
+                    binding.textFollowToSee.visibility = View.GONE
+                    // "Henüz fotoğraf paylaşmadı" mesajının görünürlüğü loadUserPhotos içinde kontrol edilecek
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Takip durumu kontrol edilirken hata: ${e.message}", e)
+                // Hata durumunda da varsayılan olarak takip edilmiyor olarak düşün
+                updateFollowButtonUI(false)
+                binding.recyclerViewPhotos.visibility = View.GONE
+                binding.textNoPhotos.visibility = View.GONE
+                binding.textFollowToSee.visibility = View.VISIBLE
+            }
+    }
+    
+    // Takip et butonunun görünümünü güncelle
+    private fun updateFollowButtonUI(isFollowing: Boolean) {
+        if (isFollowing) {
+            binding.buttonFollow.text = "Takibi Bırak"
+            binding.buttonFollow.setBackgroundResource(R.drawable.button_outline_background)
+        } else {
+            binding.buttonFollow.text = "Takip Et"
+            binding.buttonFollow.setBackgroundResource(R.drawable.button_background)
+        }
+    }
+    
+    // Takip et/bırak işlemi
+    private fun toggleFollow(profileUserId: String, isCurrentlyFollowing: Boolean) {
+        val currentUser = auth.currentUser ?: return
+        val followId = "${currentUser.uid}_${profileUserId}"
+        
+        if (!isCurrentlyFollowing) {
+            // Takip et
+            val followData = hashMapOf(
+                "followerId" to currentUser.uid,
+                "followingId" to profileUserId,
+                "timestamp" to System.currentTimeMillis()
+            )
+            
+            firestore.collection("follows")
+                .document(followId)
+                .set(followData)
+                .addOnSuccessListener {
+                    // UI'ı güncelle
+                    updateFollowButtonUI(true)
+                    updateFollowCounts(profileUserId, currentUser.uid, 1)
+                    
+                    // Fotoğrafları yükle
+                    loadPhotosFromFirestore(profileUserId)
+                    
+                    // Bildirim gönder
+                    sendFollowNotification(profileUserId, currentUser.uid)
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Takip edilirken hata: ${e.message}", e)
+                    Toast.makeText(context, "Takip edilemedi: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            // Takibi bırak
+            firestore.collection("follows")
+                .document(followId)
+                .delete()
+                .addOnSuccessListener {
+                    // UI'ı güncelle
+                    updateFollowButtonUI(false)
+                    updateFollowCounts(profileUserId, currentUser.uid, -1)
+                    
+                    // Fotoğrafları gizle
+                    binding.recyclerViewPhotos.visibility = View.GONE
+                    binding.textNoPhotos.visibility = View.GONE
+                    binding.textFollowToSee.visibility = View.VISIBLE
+                    
+                    // Bildirim gönder
+                    sendUnfollowNotification(profileUserId, currentUser.uid)
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Takip bırakılırken hata: ${e.message}", e)
+                    Toast.makeText(context, "Takipten çıkılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+    
+    // Takipçi/takip sayısını güncelle
+    private fun updateFollowCounts(followedUserId: String, followerUserId: String, increment: Int) {
+        // Takip edilen kullanıcının takipçi sayısını güncelle
+        firestore.collection("users").document(followedUserId)
+            .get()
+            .addOnSuccessListener { document ->
+                val currentFollowers = document.getLong("followers")?.toInt() ?: 0
+                val newFollowers = (currentFollowers + increment).coerceAtLeast(0)
+                
+                firestore.collection("users").document(followedUserId)
+                    .update("followers", newFollowers)
+                    .addOnSuccessListener {
+                        // Sadece UI görüntülenen kullanıcı için güncelle
+                        if (arguments?.getString("userId") == followedUserId) {
+                            binding.textFollowersCount.text = newFollowers.toString()
+                        }
+                    }
+            }
+        
+        // Takip eden kullanıcının takip ettiği sayısını güncelle
+        firestore.collection("users").document(followerUserId)
+            .get()
+            .addOnSuccessListener { document ->
+                val currentFollowing = document.getLong("following")?.toInt() ?: 0
+                val newFollowing = (currentFollowing + increment).coerceAtLeast(0)
+                
+                firestore.collection("users").document(followerUserId)
+                    .update("following", newFollowing)
+            }
+    }
+    
+    // Takip bildirimi gönder
+    private fun sendFollowNotification(receiverId: String, senderId: String) {
+        // Takip eden kullanıcının bilgilerini al
+        firestore.collection("users")
+            .document(senderId)
+            .get()
+            .addOnSuccessListener { document ->
+                val senderUsername = document.getString("username") ?: "Bir kullanıcı"
+                
+                // Bildirim verisi oluştur
+                val notificationData = hashMapOf(
+                    "type" to "follow",
+                    "receiverId" to receiverId,
+                    "senderId" to senderId,
+                    "senderUsername" to senderUsername,
+                    "message" to "$senderUsername sizi takip etmeye başladı!",
+                    "timestamp" to System.currentTimeMillis(),
+                    "isRead" to false
+                )
+                
+                // Bildirimi Firestore'a ekle
+                firestore.collection("notifications")
+                    .add(notificationData)
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Takip bildirimi eklenirken hata: ${e.message}", e)
+                    }
+            }
+    }
+    
+    // Takipten çıkma bildirimi gönder
+    private fun sendUnfollowNotification(receiverId: String, senderId: String) {
+        // Takipten çıkan kullanıcının bilgilerini al
+        firestore.collection("users")
+            .document(senderId)
+            .get()
+            .addOnSuccessListener { document ->
+                val senderUsername = document.getString("username") ?: "Bir kullanıcı"
+                
+                // Bildirim verisi oluştur
+                val notificationData = hashMapOf(
+                    "type" to "unfollow",
+                    "receiverId" to receiverId,
+                    "senderId" to senderId,
+                    "senderUsername" to senderUsername,
+                    "message" to "$senderUsername sizi takip etmeyi bıraktı!",
+                    "timestamp" to System.currentTimeMillis(),
+                    "isRead" to false
+                )
+                
+                // Bildirimi Firestore'a ekle
+                firestore.collection("notifications")
+                    .add(notificationData)
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Takipten çıkma bildirimi eklenirken hata: ${e.message}", e)
+                    }
             }
     }
 

@@ -10,6 +10,7 @@ import com.example.dodoprojectv2.api.GeminiRequest
 import com.example.dodoprojectv2.api.Part
 import com.example.dodoprojectv2.api.TaskResponse
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -43,7 +44,7 @@ class TaskGeneratorWorker(
             // Bugün için görevler zaten var mı kontrol et
             val dailyTasksSnapshot = firestore.collection("daily_tasks")
                 .document(dateString)
-                .get()
+                .get(Source.DEFAULT)
                 .await()
                 
             if (dailyTasksSnapshot.exists()) {
@@ -108,44 +109,14 @@ class TaskGeneratorWorker(
                 Bu görevler, kullanıcıyı hem ev içinde hem de dışarıda (sokak, park, alışveriş merkezi gibi yerlerde) 
                 aktif olmaya teşvik eden, çeşitli ve ilgi çekici görevler olmalı.
                 
-                ÇOK ÖNEMLİ KURALLAR:
-                1. Her görev diğerlerinden açıkça farklı olmalı ve birbirini tekrar etmemeli.
-                2. HER GÖREV BENZERSİZ OLMALI ve farklı kategorilerden seçilmeli.
-                3. Görevlerin yaklaşık %60'ı kullanıcıyı evden dışarı çıkarmaya teşvik etmeli (dışarıda fotoğraf çekme, doğa, yürüyüş vb.)
-                4. Görevler, kullanıcıya neşe, heyecan ve keşif duygusu vermeli.
-                5. Görevler basit ancak ilgi çekici olmalı, kullanıcıyı fiziksel olarak aktif olmaya yönlendirmeli.
+                Örnekler:
+                - Dış: "Kırmızı araba fotoğrafla", "Ağaç veya çiçek fotoğrafla", "Sokak tabelası fotoğrafla"
+                - İç: "Mutfak aleti fotoğrafla", "Kitap fotoğrafla", "Teknolojik cihaz fotoğrafla"
                 
-                Her görev Türkçe, kısa ve anlaşılır bir cümle olmalı.
-                
-                Dış mekan görev örnekleri:
-                - "Bir park veya bahçeden manzara fotoğrafla" (doğa kategorisi)
-                - "Sokakta yürüyen bir evcil hayvan fotoğrafla" (evcil hayvan kategorisi)
-                - "Dışarıda ilginç bir mimari detay fotoğrafla" (mimari kategorisi)
-                - "Bulutlu gökyüzü fotoğrafla" (hava kategorisi)
-                - "Bir sokak tabelası fotoğrafla" (şehir kategorisi)
-                - "Dışarıda park edilmiş renkli bir araç fotoğrafla" (ulaşım kategorisi)
-                - "Bir çiçek veya ağaç fotoğrafla" (bitki kategorisi)
-                - "3 adet kırmızı araba fotoğrafla" (otomobil kategorisi)
-                - "Halka açık bir alanda bulunan bir heykel veya sanat eseri fotoğrafla" (sanat kategorisi)
-                - "Bir cafe veya restoran tabelası fotoğrafla" (yeme-içme kategorisi)
-                - "Dışarıda gördüğün ilginç bir tabela ya da yazı fotoğrafla" (yazı kategorisi)
-                - "Parkta bir spor ekipmanı fotoğrafla" (spor kategorisi)
-                
-                İç mekan görev örnekleri:
-                - "Evdeki favori kitabını fotoğrafla" (eğitim kategorisi)
-                - "Mutfakta kullandığın bir aletin fotoğrafını çek" (mutfak kategorisi)
-                - "Odanın en renkli köşesini fotoğrafla" (iç mekan kategorisi)
-                - "Evdeki en sevdiğin tabloyu fotoğrafla" (dekorasyon kategorisi)
-                - "Kullandığın bir teknolojik cihazı fotoğrafla" (teknoloji kategorisi)
-                - "Evde yaptığın bir yemeği veya içeceği fotoğrafla" (yemek kategorisi)
-                - "Evdeki en eski eşyayı fotoğrafla" (nostalji kategorisi)
-                
-                Tam olarak 3 farklı kategoriden görev oluştur. Bunlardan en az 1 veya 2 tanesi dış mekan görevi olmalı.
-                Her görev için gereken fotoğraf sayısı (1-3 arasında) belirtin.
-                Sadece 3 benzersiz görevi JSON formatında döndür:
+                JSON formatında döndür:
                 [
                   {"title": "Görev açıklaması", "totalCount": 1},
-                  {"title": "Görev açıklaması", "totalCount": 2},
+                  {"title": "Görev açıklaması", "totalCount": 2}, 
                   {"title": "Görev açıklaması", "totalCount": 3}
                 ]
             """.trimIndent()

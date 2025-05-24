@@ -1,7 +1,11 @@
 package com.example.dodoprojectv2.ui.tasks
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -87,7 +91,23 @@ class TasksFragment : Fragment() {
     
     private fun setupSwipeRefresh() {
         binding.swipeRefreshLayout.setOnRefreshListener {
-            tasksViewModel.loadTasks()
+            Log.d(TAG, "Swipe refresh tetiklendi")
+            tasksViewModel.forceRefresh()
+        }
+        
+        // Debug: Başlığa uzun basınca cache clear
+        binding.textTasksTitle.setOnLongClickListener {
+            Log.d(TAG, "Başlığa uzun basıldı - Cache temizleniyor")
+            Toast.makeText(context, "Cache temizleniyor...", Toast.LENGTH_SHORT).show()
+            tasksViewModel.clearCacheAndReload()
+            true
+        }
+        
+        // Debug: Zamanı gösteren text'e basınca connectivity test
+        binding.textTimeUntilReset.setOnClickListener {
+            Log.d(TAG, "Connectivity test tetiklendi")
+            Toast.makeText(context, "Bağlantı test ediliyor...", Toast.LENGTH_SHORT).show()
+            tasksViewModel.testConnectivity()
         }
     }
     
@@ -148,7 +168,48 @@ class TasksFragment : Fragment() {
     
     override fun onResume() {
         super.onResume()
+        
+        // Network durumunu debug et
+        debugNetworkState()
+        
         // Fragment her görünür olduğunda görevleri yenile 
         tasksViewModel.loadTasks()
+    }
+    
+    private fun debugNetworkState() {
+        try {
+            val context = requireContext()
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = connectivityManager.activeNetwork
+                val networkCapabilities = connectivityManager.getNetworkCapabilities(network)
+                
+                Log.d(TAG, "=== NETWORK DEBUG ===")
+                Log.d(TAG, "Active Network: $network")
+                Log.d(TAG, "Network Capabilities: $networkCapabilities")
+                
+                if (networkCapabilities != null) {
+                    Log.d(TAG, "Has WiFi: ${networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}")
+                    Log.d(TAG, "Has Cellular: ${networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)}")
+                    Log.d(TAG, "Has Ethernet: ${networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)}")
+                    Log.d(TAG, "Has Internet: ${networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}")
+                    Log.d(TAG, "Has Validated: ${networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}")
+                } else {
+                    Log.w(TAG, "Network capabilities null - NO INTERNET")
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val networkInfo = connectivityManager.activeNetworkInfo
+                Log.d(TAG, "=== NETWORK DEBUG (Legacy) ===")
+                Log.d(TAG, "Network Info: $networkInfo")
+                Log.d(TAG, "Is Connected: ${networkInfo?.isConnected}")
+                Log.d(TAG, "Type: ${networkInfo?.type}")
+            }
+            Log.d(TAG, "=====================")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Network debug hatası: ${e.message}", e)
+        }
     }
 } 

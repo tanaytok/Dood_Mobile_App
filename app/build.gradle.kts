@@ -71,4 +71,7 @@ dependencies {
 
     // Google Material
     implementation("com.google.android.material:material:1.11.0")
+    
+    // For Play Services libraries (some are included by Firebase, others you add directly)
+    implementation("com.google.android.gms:play-services-location:21.1.0") // Example, check latest version
 }

@@ -1,5 +1,9 @@
 package com.example.dodoprojectv2.ui.tasks
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -13,6 +17,7 @@ import com.example.dodoprojectv2.work.TaskGeneratorWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -49,13 +54,54 @@ class TasksViewModel : ViewModel() {
         startTimeUntilResetCounter()
     }
 
+    private fun isNetworkAvailable(): Boolean {
+        val context = MyApplication.appContext
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork ?: return false
+            val networkCapabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            
+            networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+            networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        } else {
+            @Suppress("DEPRECATION")
+            val networkInfo = connectivityManager.activeNetworkInfo
+            networkInfo?.isConnected == true
+        }
+    }
+    
+    private fun getOptimalSource(): Source {
+        return if (isNetworkAvailable()) {
+            Log.d(TAG, "Network mevcut, SERVER kullanılıyor")
+            Source.SERVER
+        } else {
+            Log.d(TAG, "Network yok, CACHE kullanılıyor")
+            Source.CACHE
+        }
+    }
+
     fun loadTasks() {
         _isLoading.value = true
+        _errorMessage.value = ""
         
         val currentUser = auth.currentUser
         if (currentUser == null) {
             _errorMessage.value = "Kullanıcı oturum açmamış"
             _isLoading.value = false
+            return
+        }
+        
+        // Network durumunu kontrol et
+        val isNetworkAvailable = isNetworkAvailable()
+        Log.d(TAG, "Network durumu: $isNetworkAvailable")
+        
+        if (!isNetworkAvailable) {
+            Log.w(TAG, "Network yok, direkt cache ve fallback görevlere geçiliyor")
+            // Network yoksa direkt fallback görevleri göster
+            _errorMessage.value = "İnternet bağlantısı yok. Örnek görevler gösteriliyor."
+            createSampleTasksIfNeeded()
             return
         }
         
@@ -68,7 +114,7 @@ class TasksViewModel : ViewModel() {
         firestore.collection("tasks")
             .whereEqualTo("userId", currentUser.uid)
             .whereEqualTo("dateString", dateString)
-            .get()
+            .get(getOptimalSource())
             .addOnSuccessListener { documents ->
                 if (!documents.isEmpty) {
                     // Kullanıcının bugünkü görevleri varsa, onları göster
@@ -134,23 +180,35 @@ class TasksViewModel : ViewModel() {
                 _isLoading.value = false
                 _errorMessage.value = "Görevler yüklenirken hata oluştu: ${e.message}"
                 Log.e(TAG, "Görevler yüklenirken hata: ${e.message}", e)
-                _isEmpty.value = true
                 
-                // Hata durumunda örnek görevleri göster
-                createSampleTasksIfNeeded()
+                // Hata tipine göre farklı stratejiler uygula
+                when {
+                    e.message?.contains("offline") == true -> {
+                        Log.d(TAG, "Offline hatası tespit edildi, cache'den yükleniyor...")
+                        tryLoadFromCacheDirectly(currentUser.uid, dateString)
+                    }
+                    e.message?.contains("network") == true -> {
+                        Log.d(TAG, "Network hatası tespit edildi, retry yapılıyor...")
+                        retryLoadTasks()
+                    }
+                    else -> {
+                        Log.d(TAG, "Diğer hata, cache deneniyor...")
+                        tryLoadFromCacheDirectly(currentUser.uid, dateString)
+                    }
+                }
             }
     }
 
     private fun assignTasksToUser(userId: String, dateString: String) {
         _isLoading.value = true
         
-        Log.d(TAG, "Kullanıcıya görevler atanıyor: $userId, tarih: $dateString")
+        // Önce cache'den kontrol et, offline ise cache kullan
+        val source = getOptimalSource()
         
-        // Önce kullanıcının mevcut görevlerini temizle
         firestore.collection("tasks")
             .whereEqualTo("userId", userId)
             .whereEqualTo("dateString", dateString)
-            .get()
+            .get(source)
             .addOnSuccessListener { existingTasks ->
                 // Eğer mevcut görevler varsa önce bunları silelim
                 if (!existingTasks.isEmpty) {
@@ -168,11 +226,8 @@ class TasksViewModel : ViewModel() {
                         }
                         .addOnFailureListener { e ->
                             Log.e(TAG, "Mevcut görevler temizlenirken hata: ${e.message}", e)
-                            _isLoading.value = false
-                            _errorMessage.value = "Görevler atanırken hata oluştu: ${e.message}"
-                            _isEmpty.value = true
-                            // Hata durumunda örnek görevleri göster
-                            createSampleTasksIfNeeded()
+                            // Offline ise cache'den görevleri yükle
+                            tryLoadFromCache(userId, dateString)
                         }
                 } else {
                     // Mevcut görev yoksa direkt yeni görevleri ata
@@ -181,19 +236,19 @@ class TasksViewModel : ViewModel() {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Mevcut görevler kontrol edilirken hata: ${e.message}", e)
-                _isLoading.value = false
-                _errorMessage.value = "Görevler kontrol edilirken hata oluştu: ${e.message}"
-                _isEmpty.value = true
-                // Hata durumunda örnek görevleri göster
-                createSampleTasksIfNeeded()
+                // Offline ise cache'den görevleri yükle
+                tryLoadFromCache(userId, dateString)
             }
     }
     
     private fun fetchDailyTasksAndAssign(userId: String, dateString: String) {
+        // Önce cache'den kontrol et, offline ise cache kullan
+        val source = getOptimalSource()
+        
         // Önce bugünün görevlerini daily_tasks koleksiyonundan kontrol et
         firestore.collection("daily_tasks")
             .document(dateString)
-            .get()
+            .get(source)
             .addOnSuccessListener { document ->
                 if (document.exists() && document.get("tasks") != null) {
                     try {
@@ -296,9 +351,65 @@ class TasksViewModel : ViewModel() {
                 _isEmpty.value = true
                 Log.e(TAG, "Görevler kontrol edilirken hata: ${e.message}", e)
                 
-                // Hata durumunda örnek görevleri göster
-                createSampleTasksIfNeeded()
+                // Offline ise cache'den görevleri yükle
+                tryLoadFromCache(userId, dateString)
             }
+    }
+
+    private fun tryLoadFromCache(userId: String, dateString: String) {
+        Log.d(TAG, "Cache'den görevler yüklenmeye çalışılıyor...")
+        
+        // Cache'den mevcut görevleri yüklemeyi dene
+        firestore.collection("tasks")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("dateString", dateString)
+            .get(getOptimalSource())
+            .addOnSuccessListener { cachedTasks ->
+                if (!cachedTasks.isEmpty) {
+                    Log.d(TAG, "Cache'den ${cachedTasks.size()} görev bulundu")
+                    val tasksList = cachedTasks.mapNotNull { doc ->
+                        try {
+                            Task(
+                                id = doc.id,
+                                title = doc.getString("title") ?: "",
+                                totalCount = doc.getLong("totalCount")?.toInt() ?: 1,
+                                completedCount = doc.getLong("completedCount")?.toInt() ?: 0,
+                                isCompleted = doc.getBoolean("isCompleted") ?: false,
+                                timestamp = doc.getLong("timestamp") ?: 0,
+                                expiresAt = doc.getLong("expiresAt") ?: 0,
+                                points = doc.getLong("points")?.toInt() ?: 100,
+                                userId = doc.getString("userId") ?: "",
+                                dateString = doc.getString("dateString") ?: ""
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Cache'den görev verisi dönüştürülürken hata: ${e.message}", e)
+                            null
+                        }
+                    }
+                    
+                    _tasks.value = tasksList
+                    _isEmpty.value = tasksList.isEmpty()
+                    _isLoading.value = false
+                    _errorMessage.value = "Offline modunda cache'den yüklendi"
+                    Log.d(TAG, "Cache'den ${tasksList.size} görev başarıyla yüklendi")
+                } else {
+                    Log.d(TAG, "Cache'de görev bulunamadı, sample görevler gösteriliyor")
+                    fallbackToSampleTasks()
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Cache'den görev yüklenirken hata: ${e.message}", e)
+                fallbackToSampleTasks()
+            }
+    }
+    
+    private fun fallbackToSampleTasks() {
+        Log.d(TAG, "Fallback: Sample görevler gösteriliyor")
+        _isLoading.value = false
+        _errorMessage.value = "İnternet bağlantısı gerekli. Sample görevler gösteriliyor."
+        _isEmpty.value = true
+        // Sample görevleri göster
+        createSampleTasksIfNeeded()
     }
 
     private fun triggerTaskGeneration(userId: String, dateString: String) {
@@ -592,6 +703,181 @@ class TasksViewModel : ViewModel() {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Kullanıcı bilgileri alınırken hata: ${e.message}", e)
+            }
+    }
+
+    private fun retryLoadTasks() {
+        Log.d(TAG, "3 saniye sonra tekrar deneniyor...")
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (isNetworkAvailable()) {
+                Log.d(TAG, "Network tekrar mevcut, tekrar yükleniyor...")
+                loadTasks()
+            } else {
+                Log.d(TAG, "Network hala yok, cache kullanılıyor...")
+                val currentUser = auth.currentUser ?: return@postDelayed
+                val today = Calendar.getInstance()
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val dateString = dateFormat.format(today.time)
+                tryLoadFromCacheDirectly(currentUser.uid, dateString)
+            }
+        }, 3000)
+    }
+    
+    private fun tryLoadFromCacheDirectly(userId: String, dateString: String) {
+        Log.d(TAG, "Cache'den direkt yükleme deneniyor...")
+        
+        firestore.collection("tasks")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("dateString", dateString)
+            .get(Source.CACHE)
+            .addOnSuccessListener { cachedTasks ->
+                if (!cachedTasks.isEmpty) {
+                    Log.d(TAG, "Cache'den ${cachedTasks.size()} görev bulundu")
+                    val tasksList = cachedTasks.mapNotNull { doc ->
+                        try {
+                            Task(
+                                id = doc.id,
+                                title = doc.getString("title") ?: "",
+                                totalCount = doc.getLong("totalCount")?.toInt() ?: 1,
+                                completedCount = doc.getLong("completedCount")?.toInt() ?: 0,
+                                isCompleted = doc.getBoolean("isCompleted") ?: false,
+                                timestamp = doc.getLong("timestamp") ?: 0,
+                                expiresAt = doc.getLong("expiresAt") ?: 0,
+                                points = doc.getLong("points")?.toInt() ?: 100,
+                                userId = doc.getString("userId") ?: "",
+                                dateString = doc.getString("dateString") ?: ""
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Cache'den görev verisi dönüştürülürken hata: ${e.message}", e)
+                            null
+                        }
+                    }
+                    
+                    _tasks.value = tasksList
+                    _isEmpty.value = tasksList.isEmpty()
+                    _isLoading.value = false
+                    _errorMessage.value = "Offline modunda cache'den yüklendi"
+                    Log.d(TAG, "Cache'den ${tasksList.size} görev başarıyla yüklendi")
+                } else {
+                    Log.d(TAG, "Cache'de görev bulunamadı, sample görevler gösteriliyor")
+                    fallbackToSampleTasks()
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Cache'den görev yüklenirken hata: ${e.message}", e)
+                fallbackToSampleTasks()
+            }
+    }
+
+    fun forceRefresh() {
+        Log.d(TAG, "Force refresh tetiklendi")
+        _isLoading.value = true
+        _errorMessage.value = ""
+        
+        // Cache'i bypass et ve server'dan direkt yükle
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            _errorMessage.value = "Kullanıcı oturum açmamış"
+            _isLoading.value = false
+            return
+        }
+        
+        val today = Calendar.getInstance()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dateString = dateFormat.format(today.time)
+        
+        firestore.collection("tasks")
+            .whereEqualTo("userId", currentUser.uid)
+            .whereEqualTo("dateString", dateString)
+            .get(Source.SERVER)
+            .addOnSuccessListener { documents ->
+                if (!documents.isEmpty) {
+                    val tasksList = documents.mapNotNull { doc ->
+                        try {
+                            Task(
+                                id = doc.id,
+                                title = doc.getString("title") ?: "",
+                                totalCount = doc.getLong("totalCount")?.toInt() ?: 1,
+                                completedCount = doc.getLong("completedCount")?.toInt() ?: 0,
+                                isCompleted = doc.getBoolean("isCompleted") ?: false,
+                                timestamp = doc.getLong("timestamp") ?: 0,
+                                expiresAt = doc.getLong("expiresAt") ?: 0,
+                                points = doc.getLong("points")?.toInt() ?: 100,
+                                userId = doc.getString("userId") ?: "",
+                                dateString = doc.getString("dateString") ?: ""
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Force refresh'te görev verisi dönüştürülürken hata: ${e.message}", e)
+                            null
+                        }
+                    }
+                    
+                    _tasks.value = tasksList.distinctBy { it.title }
+                    _isEmpty.value = tasksList.isEmpty()
+                    _isLoading.value = false
+                    _errorMessage.value = ""
+                    Log.d(TAG, "Force refresh başarılı: ${tasksList.size} görev yüklendi")
+                } else {
+                    Log.d(TAG, "Force refresh'te görev bulunamadı, yeni görevler atanıyor")
+                    assignTasksToUser(currentUser.uid, dateString)
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Force refresh başarısız: ${e.message}", e)
+                _isLoading.value = false
+                _errorMessage.value = "Yenileme başarısız: ${e.message}"
+                
+                // Server erişimi başarısız, cache'e geri dön
+                tryLoadFromCacheDirectly(currentUser.uid, dateString)
+            }
+    }
+    
+    fun clearCacheAndReload() {
+        Log.d(TAG, "Cache temizleme ve yeniden yükleme başlatıldı")
+        
+        // Firestore client'ı yeniden başlatmak için settings'i yenile
+        try {
+            // Manuel cache clear - available görevleri temizle
+            _tasks.value = emptyList()
+            _isEmpty.value = true
+            _isLoading.value = true
+            _errorMessage.value = "Cache temizleniyor..."
+            
+            // 2 saniye bekle ve yeniden yükle
+            Handler(Looper.getMainLooper()).postDelayed({
+                loadTasks()
+            }, 2000)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Cache temizleme sırasında hata: ${e.message}", e)
+            loadTasks()
+        }
+    }
+
+    fun testConnectivity() {
+        Log.d(TAG, "=== CONNECTIVITY TEST BAŞLADI ===")
+        _isLoading.value = true
+        _errorMessage.value = "Bağlantı test ediliyor..."
+        
+        // Basit bir test query
+        firestore.collection("users")
+            .limit(1)
+            .get(Source.SERVER)
+            .addOnSuccessListener { documents ->
+                Log.d(TAG, "✅ Firestore bağlantısı BAŞARILI")
+                _errorMessage.value = "Firestore bağlantısı başarılı!"
+                _isLoading.value = false
+                
+                // Başarılıysa görevleri yükle
+                loadTasks()
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "❌ Firestore bağlantısı BAŞARISIZ: ${e.message}")
+                _errorMessage.value = "Firestore bağlantısı başarısız: ${e.message}"
+                _isLoading.value = false
+                
+                // Bağlantı yoksa sample görevleri göster
+                createSampleTasksIfNeeded()
             }
     }
 } 

@@ -160,14 +160,18 @@ class MainActivity : AppCompatActivity() {
     
     // Firebase indeks hatalarını yakala ve kullanıcıya yardımcı bilgi göster
     private fun setupFirebaseIndexErrorLogging() {
-        FirebaseFirestore.getInstance().firestoreSettings = 
-            FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)
-                .build()
+        val settings = FirebaseFirestoreSettings.Builder()
+            .setPersistenceEnabled(true)
+            .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+            .build()
+            
+        FirebaseFirestore.getInstance().firestoreSettings = settings
                 
         // Geliştirme aşamasında indeks hatalarını loglama
         if (BuildConfig.DEBUG) {
             FirebaseFirestore.setLoggingEnabled(true)
         }
+        
+        Log.d("MainActivity", "Firestore settings configured with persistence enabled")
     }
 }

@@ -343,6 +343,18 @@ class HomeViewModel : ViewModel() {
                         .addOnSuccessListener {
                             // Beğeni sayısını artır
                             updatePostLikeCount(postId, 1)
+                            
+                            // Beğeni bildirimi gönder
+                            // Fotoğrafın sahibini bul ve bildirim gönder
+                            firestore.collection("user_photos").document(postId)
+                                .get()
+                                .addOnSuccessListener { photoDoc ->
+                                    val photoOwnerId = photoDoc.getString("userId")
+                                    if (photoOwnerId != null && photoOwnerId != currentUser.uid) {
+                                        // Kendi gönderimizi beğenirsek bildirim gönderme
+                                        sendLikeNotification(photoOwnerId, currentUser.uid, postId)
+                                    }
+                                }
                         }
                 }
             }
@@ -444,6 +456,302 @@ class HomeViewModel : ViewModel() {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Takipten çıkan kullanıcı getirilirken hata: ${e.message}", e)
+            }
+    }
+    
+    // Beğeni bildirimi gönder
+    private fun sendLikeNotification(receiverId: String, senderId: String, postId: String) {
+        // Beğenen kullanıcının bilgilerini al
+        firestore.collection("users")
+            .whereEqualTo("userId", senderId)
+            .get()
+            .addOnSuccessListener { documents ->
+                if (documents.isEmpty) {
+                    Log.e(TAG, "Beğenen kullanıcı bulunamadı")
+                    return@addOnSuccessListener
+                }
+                
+                val senderDoc = documents.documents.first()
+                val senderUsername = senderDoc.getString("username") ?: "Bir kullanıcı"
+                
+                // Bildirim verisi oluştur
+                val notificationData = hashMapOf(
+                    "type" to "like",
+                    "receiverId" to receiverId,
+                    "senderId" to senderId,
+                    "senderUsername" to senderUsername,
+                    "message" to "$senderUsername fotoğrafınızı beğendi!",
+                    "timestamp" to System.currentTimeMillis(),
+                    "isRead" to false,
+                    "relatedItemId" to postId
+                )
+                
+                // Bildirimi Firestore'a ekle
+                firestore.collection("notifications")
+                    .add(notificationData)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Beğeni bildirimi eklendi")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Beğeni bildirimi eklenirken hata: ${e.message}", e)
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Beğenen kullanıcı getirilirken hata: ${e.message}", e)
+            }
+    }
+    
+    // Yorum bildirimi gönder
+    private fun sendCommentNotification(receiverId: String, senderId: String, postId: String, commentText: String) {
+        // Yorum yapan kullanıcının bilgilerini al
+        firestore.collection("users")
+            .whereEqualTo("userId", senderId)
+            .get()
+            .addOnSuccessListener { documents ->
+                if (documents.isEmpty) {
+                    Log.e(TAG, "Yorum yapan kullanıcı bulunamadı")
+                    return@addOnSuccessListener
+                }
+                
+                val senderDoc = documents.documents.first()
+                val senderUsername = senderDoc.getString("username") ?: "Bir kullanıcı"
+                
+                // Yorum metni çok uzunsa kısalt
+                val shortenedComment = if (commentText.length > 30) 
+                    "${commentText.substring(0, 30)}..." 
+                else 
+                    commentText
+                
+                // Bildirim verisi oluştur
+                val notificationData = hashMapOf(
+                    "type" to "comment",
+                    "receiverId" to receiverId,
+                    "senderId" to senderId,
+                    "senderUsername" to senderUsername,
+                    "message" to "$senderUsername fotoğrafınıza yorum yaptı: \"$shortenedComment\"",
+                    "timestamp" to System.currentTimeMillis(),
+                    "isRead" to false,
+                    "relatedItemId" to postId
+                )
+                
+                // Bildirimi Firestore'a ekle
+                firestore.collection("notifications")
+                    .add(notificationData)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Yorum bildirimi eklendi")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Yorum bildirimi eklenirken hata: ${e.message}", e)
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Yorum yapan kullanıcı getirilirken hata: ${e.message}", e)
+            }
+    }
+    
+    // Yorum sayısını güncelle
+    private fun updatePostCommentCount(postId: String, increment: Int) {
+        firestore.collection("user_photos").document(postId)
+            .get()
+            .addOnSuccessListener { document ->
+                val currentComments = document.getLong("commentsCount")?.toInt() ?: 0
+                val newComments = (currentComments + increment).coerceAtLeast(0)
+                
+                firestore.collection("user_photos").document(postId)
+                    .update("commentsCount", newComments)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Gönderi yorum sayısı güncellendi")
+                    }
+            }
+    }
+    
+    // Gönderi yorumlarını yükle
+    private val _comments = MutableLiveData<List<CommentModel>>()
+    val comments: LiveData<List<CommentModel>> = _comments
+    
+    private val _isLoadingComments = MutableLiveData<Boolean>()
+    val isLoadingComments: LiveData<Boolean> = _isLoadingComments
+    
+    private val _isEmptyComments = MutableLiveData<Boolean>()
+    val isEmptyComments: LiveData<Boolean> = _isEmptyComments
+    
+    fun loadComments(postId: String) {
+        _isLoadingComments.value = true
+        _isEmptyComments.value = false
+        
+        try {
+            // İndeks hatası alındığında, Firebase sorgu yolunu değiştirelim
+            // İndeks oluşturmak için Firebase konsolunu kullanın:
+            // https://console.firebase.google.com/project/[PROJECT_ID]/firestore/indexes
+            
+            firestore.collection("post_comments")
+                .whereEqualTo("postId", postId)
+                .get()
+                .addOnSuccessListener { documents ->
+                    _isLoadingComments.value = false
+                    
+                    if (documents.isEmpty) {
+                        _comments.value = emptyList()
+                        _isEmptyComments.value = true
+                        return@addOnSuccessListener
+                    }
+                    
+                    // Kullanıcı bilgilerini depolamak için map
+                    val userInfoMap = mutableMapOf<String, Pair<String, String>>() // userId -> (username, profilePhotoUrl)
+                    
+                    // Önce tüm kullanıcı bilgilerini almak için kullanıcı ID'lerini topla
+                    val userIds = documents.documents.mapNotNull { it.getString("userId") }.distinct()
+                    
+                    if (userIds.isEmpty()) {
+                        _comments.value = emptyList()
+                        _isEmptyComments.value = true
+                        return@addOnSuccessListener
+                    }
+                    
+                    // Kullanıcı bilgilerini yükle
+                    firestore.collection("users")
+                        .whereIn("userId", userIds)
+                        .get()
+                        .addOnSuccessListener { userDocuments ->
+                            // Kullanıcı bilgilerini map'e kaydet
+                            for (userDoc in userDocuments) {
+                                val userId = userDoc.getString("userId") ?: continue
+                                val username = userDoc.getString("username") ?: ""
+                                val profilePhotoUrl = userDoc.getString("profilePhotoUrl") ?: ""
+                                userInfoMap[userId] = Pair(username, profilePhotoUrl)
+                            }
+                            
+                            // Şimdi yorumları oluştur
+                            val commentsList = documents.mapNotNull { doc ->
+                                try {
+                                    val userId = doc.getString("userId") ?: return@mapNotNull null
+                                    val userInfo = userInfoMap[userId] ?: Pair("", "")
+                                    
+                                    CommentModel(
+                                        id = doc.id,
+                                        postId = doc.getString("postId") ?: "",
+                                        userId = userId,
+                                        username = userInfo.first,
+                                        userProfileUrl = userInfo.second,
+                                        text = doc.getString("text") ?: "",
+                                        timestamp = doc.getLong("timestamp") ?: 0
+                                    )
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Yorum verisi dönüştürülürken hata: ${e.message}", e)
+                                    null
+                                }
+                            }
+                            
+                            // Yorumları zaman damgasına göre manuel olarak sırala (en yeniden en eskiye)
+                            val sortedComments = commentsList.sortedByDescending { it.timestamp }
+                            _comments.value = sortedComments
+                            _isEmptyComments.value = sortedComments.isEmpty()
+                        }
+                        .addOnFailureListener { e ->
+                            _isLoadingComments.value = false
+                            _errorMessage.value = "Kullanıcı bilgileri yüklenemedi: ${e.message}"
+                            Log.e(TAG, "Kullanıcı bilgileri yüklenirken hata: ${e.message}", e)
+                        }
+                }
+                .addOnFailureListener { e ->
+                    _isLoadingComments.value = false
+                    _errorMessage.value = "Yorumlar yüklenemedi: ${e.message}"
+                    Log.e(TAG, "Yorumlar yüklenirken hata: ${e.message}", e)
+                    
+                    // Firestore indeks hatası loglama
+                    if (e.message?.contains("FAILED_PRECONDITION") == true || 
+                        e.message?.contains("index") == true) {
+                        Log.e(TAG, "Firebase indeks hatası. Firebase konsolunda indeks oluşturun.", e)
+                    }
+                }
+        } catch (e: Exception) {
+            _isLoadingComments.value = false
+            _errorMessage.value = "Bir hata oluştu: ${e.message}"
+            Log.e(TAG, "Yorumlar yüklenirken beklenmeyen hata: ${e.message}", e)
+        }
+    }
+    
+    fun addComment(postId: String, commentText: String) {
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            _errorMessage.value = "Oturum açılmamış"
+            return
+        }
+        
+        if (commentText.trim().isEmpty()) {
+            _errorMessage.value = "Yorum boş olamaz"
+            return
+        }
+        
+        _isLoadingComments.value = true
+        
+        // Önce kullanıcı bilgilerini alalım
+        firestore.collection("users")
+            .whereEqualTo("userId", currentUser.uid)
+            .get()
+            .addOnSuccessListener { userDocuments ->
+                if (userDocuments.isEmpty) {
+                    _errorMessage.value = "Kullanıcı bilgileri alınamadı"
+                    _isLoadingComments.value = false
+                    return@addOnSuccessListener
+                }
+                
+                val userDoc = userDocuments.documents.first()
+                val username = userDoc.getString("username") ?: ""
+                val profilePhotoUrl = userDoc.getString("profilePhotoUrl") ?: ""
+                
+                val commentData = hashMapOf(
+                    "postId" to postId,
+                    "userId" to currentUser.uid,
+                    "text" to commentText.trim(),
+                    "timestamp" to System.currentTimeMillis()
+                )
+                
+                firestore.collection("post_comments")
+                    .add(commentData)
+                    .addOnSuccessListener { documentReference ->
+                        // Yorum eklendi, şimdi yorum sayısını güncelle
+                        updatePostCommentCount(postId, 1)
+                        
+                        // Yorumlar listesine yeni yorumu hemen ekle (UI için)
+                        val newComment = CommentModel(
+                            id = documentReference.id,
+                            postId = postId,
+                            userId = currentUser.uid,
+                            username = username,
+                            userProfileUrl = profilePhotoUrl,
+                            text = commentText.trim(),
+                            timestamp = System.currentTimeMillis()
+                        )
+                        
+                        // Mevcut yorumları al ve en başa yeni yorumu ekle
+                        val currentComments = _comments.value ?: emptyList()
+                        val updatedComments = listOf(newComment) + currentComments
+                        _comments.value = updatedComments
+                        _isEmptyComments.value = false
+                        _isLoadingComments.value = false
+                        
+                        // Fotoğraf sahibini bul ve bildirim gönder
+                        firestore.collection("user_photos").document(postId)
+                            .get()
+                            .addOnSuccessListener { photoDoc ->
+                                val photoOwnerId = photoDoc.getString("userId")
+                                if (photoOwnerId != null && photoOwnerId != currentUser.uid) {
+                                    // Kendi gönderimize yorum yaparsak bildirim gönderme
+                                    sendCommentNotification(photoOwnerId, currentUser.uid, postId, commentText.trim())
+                                }
+                            }
+                    }
+                    .addOnFailureListener { e ->
+                        _errorMessage.value = "Yorum eklenemedi: ${e.message}"
+                        _isLoadingComments.value = false
+                        Log.e(TAG, "Yorum eklenirken hata: ${e.message}", e)
+                    }
+            }
+            .addOnFailureListener { e ->
+                _errorMessage.value = "Kullanıcı bilgileri alınamadı: ${e.message}"
+                _isLoadingComments.value = false
+                Log.e(TAG, "Kullanıcı bilgileri alınırken hata: ${e.message}", e)
             }
     }
 } 

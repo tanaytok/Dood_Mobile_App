@@ -1,5 +1,6 @@
 package com.example.dodoprojectv2.ui.home
 
+import android.app.Dialog
 import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
@@ -8,10 +9,17 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.example.dodoprojectv2.R
 import com.example.dodoprojectv2.databinding.FragmentHomeBinding
@@ -26,6 +34,7 @@ class HomeFragment : Fragment() {
     
     private lateinit var userSearchAdapter: UserSearchAdapter
     private lateinit var postAdapter: PostAdapter
+    private lateinit var commentAdapter: CommentAdapter
     
     private val TAG = "HomeFragment"
 
@@ -207,8 +216,92 @@ class HomeFragment : Fragment() {
     }
     
     private fun showCommentsDialog(post: PostModel) {
-        // TODO: Yorumları göstermek için bir dialog göster
-        Snackbar.make(binding.root, "Yorumlar özelliği henüz eklenmedi", Snackbar.LENGTH_SHORT).show()
+        context?.let { ctx ->
+            // Dialog oluştur
+            val dialog = Dialog(ctx, R.style.AppTheme_Dialog)
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_comments)
+            dialog.window?.apply {
+                setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            }
+            
+            // Dialog bileşenlerini bul
+            val recyclerViewComments = dialog.findViewById<RecyclerView>(R.id.recycler_view_comments)
+            val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmptyComments = dialog.findViewById<TextView>(R.id.text_empty_comments)
+            val editTextComment = dialog.findViewById<EditText>(R.id.edit_text_comment)
+            val buttonSendComment = dialog.findViewById<ImageButton>(R.id.button_send_comment)
+            val titleText = dialog.findViewById<TextView>(R.id.text_title)
+            
+            // Başlığı ayarla
+            titleText.text = "${post.username} Gönderisine Yorumlar"
+            
+            // Yorum adaptörünü ayarla
+            commentAdapter = CommentAdapter(
+                onUserClicked = { userId ->
+                    // Dialog'u kapat ve kullanıcı profiline git
+                    dialog.dismiss()
+                    navigateToUserProfile(userId)
+                }
+            )
+            
+            recyclerViewComments.apply {
+                layoutManager = LinearLayoutManager(ctx)
+                adapter = commentAdapter
+            }
+            
+            // Yorum gönderme butonunu ayarla
+            buttonSendComment.setOnClickListener {
+                val commentText = editTextComment.text.toString().trim()
+                if (commentText.isNotEmpty()) {
+                    homeViewModel.addComment(post.postId, commentText)
+                    editTextComment.text.clear()
+                }
+            }
+            
+            // LiveData gözlemcileri oluştur
+            val loadingObserver = androidx.lifecycle.Observer<Boolean> { isLoading ->
+                progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+            }
+            
+            val emptyObserver = androidx.lifecycle.Observer<Boolean> { isEmpty ->
+                textEmptyComments.visibility = if (isEmpty) View.VISIBLE else View.GONE
+            }
+            
+            val commentsObserver = androidx.lifecycle.Observer<List<CommentModel>> { comments ->
+                commentAdapter.updateComments(comments)
+                if (comments.isNotEmpty()) {
+                    recyclerViewComments.scrollToPosition(0)
+                }
+            }
+            
+            val errorObserver = androidx.lifecycle.Observer<String> { errorMsg ->
+                if (!errorMsg.isNullOrEmpty()) {
+                    Snackbar.make(dialog.findViewById(android.R.id.content), errorMsg, Snackbar.LENGTH_SHORT).show()
+                }
+            }
+            
+            // LiveData'lara gözlemcileri ekle
+            homeViewModel.isLoadingComments.observe(viewLifecycleOwner, loadingObserver)
+            homeViewModel.isEmptyComments.observe(viewLifecycleOwner, emptyObserver)
+            homeViewModel.comments.observe(viewLifecycleOwner, commentsObserver)
+            homeViewModel.errorMessage.observe(viewLifecycleOwner, errorObserver)
+            
+            // Dialog kapatıldığında gözlemcileri kaldır
+            dialog.setOnDismissListener {
+                homeViewModel.isLoadingComments.removeObserver(loadingObserver)
+                homeViewModel.isEmptyComments.removeObserver(emptyObserver)
+                homeViewModel.comments.removeObserver(commentsObserver)
+                homeViewModel.errorMessage.removeObserver(errorObserver)
+            }
+            
+            // Yorumları yükle
+            homeViewModel.loadComments(post.postId)
+            
+            // Dialog'u göster
+            dialog.show()
+        }
     }
 
     override fun onDestroyView() {

@@ -432,6 +432,14 @@ class TasksViewModel : ViewModel() {
                 _tasks.value = currentTasks
                 
                 Log.d(TAG, "Görev yerel olarak güncellendi: $updatedTask")
+                
+                // Eğer görev tamamlandıysa, kullanıcıya puanları ver ve haftalık skoru güncelle
+                if (isCompleted && !currentTasks[taskIndex].isCompleted) {
+                    val pointsToAdd = updatedTask.points
+                    addPointsToUser(pointsToAdd)
+                    updateWeeklyScore(pointsToAdd)
+                    Log.d(TAG, "Görev tamamlandı, $pointsToAdd puan ekleniyor ve haftalık skor güncelleniyor")
+                }
             }
             
             // Firestore'da güncelle
@@ -508,6 +516,60 @@ class TasksViewModel : ViewModel() {
             .addOnFailureListener { e ->
                 Log.e(TAG, "Kullanıcı bilgileri alınırken hata: ${e.message}", e)
             }
+    }
+    
+    private fun updateWeeklyScore(points: Int) {
+        val currentUser = auth.currentUser ?: return
+        
+        try {
+            // Haftalık skor tablosunu güncelle
+            val weeklyScoreRef = firestore.collection("weekly_scores").document(currentUser.uid)
+            
+            // Mevcut haftalık skoru kontrol et ve güncelle
+            weeklyScoreRef.get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        // Mevcut skoru al ve güncelle
+                        val currentScore = document.getLong("score")?.toInt() ?: 0
+                        val newScore = currentScore + points
+                        
+                        weeklyScoreRef.update(
+                            mapOf(
+                                "score" to newScore,
+                                "updatedAt" to System.currentTimeMillis()
+                            )
+                        )
+                            .addOnSuccessListener {
+                                Log.d(TAG, "Haftalık skor güncellendi: $newScore (+$points)")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Haftalık skor güncellenirken hata: ${e.message}", e)
+                            }
+                    } else {
+                        // Doküman yoksa yeni oluştur
+                        val userDisplayName = currentUser.displayName ?: "Anonim Kullanıcı"
+                        val weeklyScoreData = hashMapOf(
+                            "userId" to currentUser.uid,
+                            "username" to userDisplayName,
+                            "score" to points,
+                            "updatedAt" to System.currentTimeMillis()
+                        )
+                        
+                        weeklyScoreRef.set(weeklyScoreData)
+                            .addOnSuccessListener {
+                                Log.d(TAG, "Yeni haftalık skor kaydı oluşturuldu: $points")
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e(TAG, "Haftalık skor kaydı oluşturulurken hata: ${e.message}", e)
+                            }
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Haftalık skor bilgisi alınırken hata: ${e.message}", e)
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "updateWeeklyScore sırasında hata: ${e.message}", e)
+        }
     }
     
     private fun incrementUserStreak() {

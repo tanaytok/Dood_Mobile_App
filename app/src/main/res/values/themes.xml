@@ -6,4 +6,12 @@
     </style>
 
     <style name="Theme.Dodoprojectv2" parent="Base.Theme.Dodoprojectv2" />
+    
+    <!-- Dialog teması -->
+    <style name="AppTheme.Dialog" parent="Theme.AppCompat.Light.Dialog">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+    </style>
 </resources>

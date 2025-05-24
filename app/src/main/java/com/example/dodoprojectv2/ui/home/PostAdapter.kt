@@ -70,7 +70,8 @@ class PostAdapter(
         private val imagePost: ImageView = itemView.findViewById(R.id.image_post)
         private val buttonLike: ImageButton = itemView.findViewById(R.id.button_like)
         private val textLikeCount: TextView = itemView.findViewById(R.id.text_like_count)
-        private val textViewComments: TextView = itemView.findViewById(R.id.text_view_comments)
+        private val buttonComment: ImageButton = itemView.findViewById(R.id.button_comment)
+        private val textCommentCount: TextView = itemView.findViewById(R.id.text_comment_count)
 
         fun bind(post: PostModel) {
             // Kullanıcı profil fotoğrafını yükle
@@ -99,6 +100,9 @@ class PostAdapter(
 
             // Beğeni sayısını göster
             textLikeCount.text = post.likesCount.toString()
+            
+            // Yorum sayısını göster
+            textCommentCount.text = post.commentsCount.toString()
 
             // Beğeni butonunu yapılandır
             val isLiked = likedPostsMap[post.postId] ?: false
@@ -134,8 +138,8 @@ class PostAdapter(
                 val newLikes = if (newLikedState) currentLikes + 1 else (currentLikes - 1).coerceAtLeast(0)
                 textLikeCount.text = newLikes.toString()
             }
-
-            textViewComments.setOnClickListener {
+            
+            buttonComment.setOnClickListener {
                 onCommentsClicked(post)
             }
         }

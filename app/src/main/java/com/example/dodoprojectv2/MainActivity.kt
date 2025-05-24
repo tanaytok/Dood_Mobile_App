@@ -22,6 +22,7 @@ import com.example.dodoprojectv2.ui.camera.CameraViewModel
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 
 class MainActivity : AppCompatActivity() {
     
@@ -33,6 +34,10 @@ class MainActivity : AppCompatActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // FirebaseFirestore indeksleme hataları için log kontrolü ekle
+        setupFirebaseIndexErrorLogging()
+        
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
@@ -150,6 +155,19 @@ class MainActivity : AppCompatActivity() {
             
             // Okunmamış bildirimleri kontrol et
             cameraViewModel.checkUnreadNotifications()
+        }
+    }
+    
+    // Firebase indeks hatalarını yakala ve kullanıcıya yardımcı bilgi göster
+    private fun setupFirebaseIndexErrorLogging() {
+        FirebaseFirestore.getInstance().firestoreSettings = 
+            FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(true)
+                .build()
+                
+        // Geliştirme aşamasında indeks hatalarını loglama
+        if (BuildConfig.DEBUG) {
+            FirebaseFirestore.setLoggingEnabled(true)
         }
     }
 }

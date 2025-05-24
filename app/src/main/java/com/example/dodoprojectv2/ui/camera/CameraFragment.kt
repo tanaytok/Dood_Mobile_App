@@ -47,8 +47,7 @@ class CameraFragment : Fragment() {
     private fun setupRecyclerView() {
         notificationAdapter = NotificationAdapter(
             onNotificationClicked = { notification ->
-                // Bildirime tıklama işlemini kaldırdık
-                // Burada hiçbir şey yapmıyoruz
+                handleNotificationClick(notification)
             }
         )
         
@@ -116,9 +115,29 @@ class CameraFragment : Fragment() {
                 // Takip eden/çıkan kullanıcının profiline git
                 navigateToUserProfile(notification.senderId)
             }
-            "like", "comment" -> {
-                // Gönderiye git (eğer ilgili fonksiyon eklenirse)
-                Toast.makeText(context, "Gönderi detayları henüz eklenmedi", Toast.LENGTH_SHORT).show()
+            "like" -> {
+                // Beğenilen gönderiye git
+                if (notification.relatedItemId.isNotEmpty()) {
+                    // TODO: İleride gönderi detay sayfası eklenirse bu kısım güncellenecek
+                    Toast.makeText(context, "Beğenilen gönderi detayları henüz eklenmedi", Toast.LENGTH_SHORT).show()
+                    
+                    // Alternatif olarak beğenen kullanıcının profiline git
+                    navigateToUserProfile(notification.senderId)
+                } else {
+                    Toast.makeText(context, notification.message, Toast.LENGTH_SHORT).show()
+                }
+            }
+            "comment" -> {
+                // Yorum yapılan gönderiye git
+                if (notification.relatedItemId.isNotEmpty()) {
+                    // TODO: İleride gönderi detay sayfası eklenirse bu kısım güncellenecek
+                    Toast.makeText(context, "Yorum yapılan gönderi detayları henüz eklenmedi", Toast.LENGTH_SHORT).show()
+                    
+                    // Alternatif olarak yorum yapan kullanıcının profiline git
+                    navigateToUserProfile(notification.senderId)
+                } else {
+                    Toast.makeText(context, notification.message, Toast.LENGTH_SHORT).show()
+                }
             }
             else -> {
                 // Diğer bildirim türleri

@@ -18,6 +18,7 @@ class PostAdapter(
     private var posts: List<PostModel> = emptyList(),
     private val onPostClicked: (PostModel) -> Unit,
     private val onLikeClicked: (PostModel) -> Unit,
+    private val onLikeLongClicked: (PostModel, View) -> Boolean,
     private val onUserClicked: (String) -> Unit,
     private val onCommentsClicked: (PostModel) -> Unit
 ) : RecyclerView.Adapter<PostAdapter.PostViewHolder>() {
@@ -137,6 +138,16 @@ class PostAdapter(
                 val currentLikes = post.likesCount
                 val newLikes = if (newLikedState) currentLikes + 1 else (currentLikes - 1).coerceAtLeast(0)
                 textLikeCount.text = newLikes.toString()
+            }
+            
+            // Beğeni butonuna uzun basma olayını ayarla
+            buttonLike.setOnLongClickListener {
+                onLikeLongClicked(post, buttonLike)
+            }
+            
+            // Beğeni sayısına uzun basma olayını da ekleyelim
+            textLikeCount.setOnLongClickListener {
+                onLikeLongClicked(post, textLikeCount)
             }
             
             buttonComment.setOnClickListener {

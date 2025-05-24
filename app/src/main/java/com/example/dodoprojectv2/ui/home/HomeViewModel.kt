@@ -754,4 +754,64 @@ class HomeViewModel : ViewModel() {
                 Log.e(TAG, "Kullanıcı bilgileri alınırken hata: ${e.message}", e)
             }
     }
+    
+    /**
+     * Bir gönderiye beğeni yapan kullanıcıları yükler
+     */
+    fun loadPostLikes(postId: String, callback: (List<LikeUserModel>, String?) -> Unit) {
+        _isLoading.value = true
+        
+        firestore.collection("post_likes")
+            .whereEqualTo("postId", postId)
+            .get()
+            .addOnSuccessListener { documents ->
+                _isLoading.value = false
+                
+                if (documents.isEmpty) {
+                    callback(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı ID'lerini topla
+                val userIds = documents.documents.mapNotNull { it.getString("userId") }.distinct()
+                
+                if (userIds.isEmpty()) {
+                    callback(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı bilgilerini yükle
+                firestore.collection("users")
+                    .whereIn("userId", userIds)
+                    .get()
+                    .addOnSuccessListener { userDocuments ->
+                        // Kullanıcı bilgilerini eşleştir
+                        val usersMap = userDocuments.documents.associateBy(
+                            { it.getString("userId") ?: "" },
+                            { doc ->
+                                LikeUserModel(
+                                    userId = doc.getString("userId") ?: "",
+                                    username = doc.getString("username") ?: "",
+                                    profilePhotoUrl = doc.getString("profilePhotoUrl") ?: ""
+                                )
+                            }
+                        )
+                        
+                        // Tüm beğenenleri kullanıcı bilgileriyle birleştir
+                        val likeUsers = userIds.mapNotNull { userId -> usersMap[userId] }
+                        
+                        callback(likeUsers, null)
+                    }
+                    .addOnFailureListener { e ->
+                        _isLoading.value = false
+                        Log.e(TAG, "Kullanıcı bilgilerini yüklerken hata: ${e.message}", e)
+                        callback(emptyList(), e.message)
+                    }
+            }
+            .addOnFailureListener { e ->
+                _isLoading.value = false
+                Log.e(TAG, "Beğeni bilgilerini yüklerken hata: ${e.message}", e)
+                callback(emptyList(), e.message)
+            }
+    }
 } 

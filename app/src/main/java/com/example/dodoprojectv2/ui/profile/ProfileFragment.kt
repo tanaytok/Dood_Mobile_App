@@ -38,6 +38,9 @@ import android.widget.ImageButton
 import com.example.dodoprojectv2.ui.home.CommentAdapter
 import com.example.dodoprojectv2.ui.home.CommentModel
 import java.util.Calendar
+import android.widget.PopupWindow
+import com.example.dodoprojectv2.ui.home.LikeUserAdapter
+import com.example.dodoprojectv2.ui.home.LikeUserModel
 
 class ProfileFragment : Fragment() {
 
@@ -426,114 +429,149 @@ class ProfileFragment : Fragment() {
 
     // Fotoğraf detay diyaloğunu göster
     private fun showPhotoDetailDialog(photo: UserPhoto) {
-        context?.let { ctx ->
-            // Dialog oluştur
-            val dialog = Dialog(ctx)
-            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-            dialog.setContentView(R.layout.dialog_photo_detail)
-            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            
-            // Dialog bileşenlerini bul
-            val imagePhoto = dialog.findViewById<ImageView>(R.id.image_photo)
-            val textTaskName = dialog.findViewById<TextView>(R.id.text_task_name)
-            val textDate = dialog.findViewById<TextView>(R.id.text_date)
-            val textLikeCount = dialog.findViewById<TextView>(R.id.text_like_count)
-            val textCommentCount = dialog.findViewById<TextView>(R.id.text_comment_count)
-            val buttonClose = dialog.findViewById<View>(R.id.button_close)
-            val recyclerViewComments = dialog.findViewById<RecyclerView>(R.id.recycler_view_comments)
-            val editTextComment = dialog.findViewById<EditText>(R.id.edit_text_comment)
-            val buttonSendComment = dialog.findViewById<ImageButton>(R.id.button_send_comment)
-            val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
-            val textEmptyComments = dialog.findViewById<TextView>(R.id.text_empty_comments)
-            val buttonTogglePanel = dialog.findViewById<ImageButton>(R.id.button_toggle_panel)
-            val panelDetail = dialog.findViewById<View>(R.id.panel_detail)
-            val guideline = dialog.findViewById<View>(R.id.guideline)
-            
-            // Toolbar başlığını ayarla
-            dialog.findViewById<TextView>(R.id.text_title).text = "Görev Fotoğrafı"
-            
-            // Fotoğraf detaylarını göster
-            Glide.with(ctx)
-                .load(photo.photoUrl)
-                .placeholder(R.drawable.placeholder_image)
-                .into(imagePhoto)
-            
-            textTaskName.text = photo.taskName
-            
-            // Tarihi formatla
-            val calendar = Calendar.getInstance()
-            calendar.timeInMillis = photo.timestamp
-            val dateFormat = DateFormat.format("dd MMMM yyyy", calendar).toString()
-            textDate.text = dateFormat
-            
-            // Beğeni ve yorum sayılarını yükle
-            firestore.collection("user_photos").document(photo.id)
-                .get()
-                .addOnSuccessListener { document ->
-                    val likesCount = document.getLong("likesCount")?.toInt() ?: 0
-                    val commentsCount = document.getLong("commentsCount")?.toInt() ?: 0
-                    
-                    textLikeCount.text = "$likesCount beğeni"
-                    textCommentCount.text = "$commentsCount yorum"
-                }
-            
-            // Panel aç/kapat tuşu için durum değişkeni
-            var isPanelOpen = true
-            
-            // Panel aç/kapat tuşu için tıklama dinleyicisi
-            buttonTogglePanel.setOnClickListener {
-                isPanelOpen = !isPanelOpen
+        try {
+            context?.let { ctx ->
+                // Dialog oluştur
+                val dialog = Dialog(ctx)
+                dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+                dialog.setContentView(R.layout.dialog_photo_detail)
+                dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 
-                if (isPanelOpen) {
-                    // Paneli aç
-                    panelDetail.visibility = View.VISIBLE
-                    buttonTogglePanel.setImageResource(R.drawable.ic_arrow_right)
+                // Dialog bileşenlerini bul
+                val imagePhoto = dialog.findViewById<ImageView>(R.id.image_photo)
+                val textTaskName = dialog.findViewById<TextView>(R.id.text_task_name)
+                val textDate = dialog.findViewById<TextView>(R.id.text_date)
+                val textLikeCount = dialog.findViewById<TextView>(R.id.text_like_count)
+                val textCommentCount = dialog.findViewById<TextView>(R.id.text_comment_count)
+                val buttonClose = dialog.findViewById<View>(R.id.button_close)
+                val recyclerViewComments = dialog.findViewById<RecyclerView>(R.id.recycler_view_comments)
+                val editTextComment = dialog.findViewById<EditText>(R.id.edit_text_comment)
+                val buttonSendComment = dialog.findViewById<ImageButton>(R.id.button_send_comment)
+                val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
+                val textEmptyComments = dialog.findViewById<TextView>(R.id.text_empty_comments)
+                val buttonTogglePanel = dialog.findViewById<ImageButton>(R.id.button_toggle_panel)
+                val panelDetail = dialog.findViewById<View>(R.id.panel_detail)
+                val guideline = dialog.findViewById<View>(R.id.guideline)
+                
+                // Toolbar başlığını ayarla
+                dialog.findViewById<TextView>(R.id.text_title)?.text = "Görev Fotoğrafı"
+                
+                // Fotoğraf detaylarını göster
+                Glide.with(ctx)
+                    .load(photo.photoUrl)
+                    .placeholder(R.drawable.placeholder_image)
+                    .into(imagePhoto)
+                
+                textTaskName.text = photo.taskName
+                
+                // Tarihi formatla
+                val calendar = Calendar.getInstance()
+                calendar.timeInMillis = photo.timestamp
+                val dateFormat = DateFormat.format("dd MMMM yyyy", calendar).toString()
+                textDate.text = dateFormat
+                
+                // Beğeni ve yorum sayılarını yükle
+                firestore.collection("user_photos").document(photo.id)
+                    .get()
+                    .addOnSuccessListener { document ->
+                        val likesCount = document.getLong("likesCount")?.toInt() ?: 0
+                        val commentsCount = document.getLong("commentsCount")?.toInt() ?: 0
+                        
+                        textLikeCount.text = "$likesCount beğeni"
+                        textCommentCount.text = "$commentsCount yorum"
+                        
+                        // Beğeni istatistiğine uzun tıklama olayı ekle
+                        try {
+                            val layoutStats = dialog.findViewById<View>(R.id.layout_stats)
+                            if (layoutStats is ViewGroup && layoutStats.childCount > 0) {
+                                val likeLayout = layoutStats.getChildAt(0)
+                                likeLayout?.setOnLongClickListener {
+                                    showLikesPopup(photo.id, likeLayout)
+                                    true
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Beğeni layout'u alınırken hata: ${e.message}", e)
+                        }
+                        
+                        // Beğeni sayısı göstergesine de uzun tıklama olayı ekle
+                        textLikeCount.setOnLongClickListener {
+                            showLikesPopup(photo.id, textLikeCount)
+                            true
+                        }
+                    }
+                
+                // Panel aç/kapat tuşu için durum değişkeni
+                var isPanelOpen = true
+                
+                // Panel aç/kapat tuşu için tıklama dinleyicisi
+                buttonTogglePanel?.setOnClickListener {
+                    isPanelOpen = !isPanelOpen
                     
-                    // Guideline'ı normal konumuna getir
-                    val params = guideline.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-                    params.guidePercent = 0.45f
-                    guideline.layoutParams = params
-                } else {
-                    // Paneli kapat
-                    panelDetail.visibility = View.GONE
-                    buttonTogglePanel.setImageResource(R.drawable.ic_arrow_left)
-                    
-                    // Guideline'ı sağa kaydır (tam ekran fotoğraf için)
-                    val params = guideline.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-                    params.guidePercent = 0.97f
-                    guideline.layoutParams = params
+                    if (isPanelOpen) {
+                        // Paneli aç
+                        panelDetail?.visibility = View.VISIBLE
+                        buttonTogglePanel.setImageResource(R.drawable.ic_arrow_right)
+                        
+                        // Guideline'ı normal konumuna getir
+                        try {
+                            val params = guideline?.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                            params?.guidePercent = 0.45f
+                            guideline?.layoutParams = params
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Guideline ayarlanırken hata: ${e.message}", e)
+                        }
+                    } else {
+                        // Paneli kapat
+                        panelDetail?.visibility = View.GONE
+                        buttonTogglePanel.setImageResource(R.drawable.ic_arrow_left)
+                        
+                        // Guideline'ı sağa kaydır (tam ekran fotoğraf için)
+                        try {
+                            val params = guideline?.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                            params?.guidePercent = 0.97f
+                            guideline?.layoutParams = params
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Guideline ayarlanırken hata: ${e.message}", e)
+                        }
+                    }
                 }
-            }
-            
-            // Yorum adaptörünü oluştur
-            val commentAdapter = CommentAdapter(emptyList()) { userId ->
-                dialog.dismiss()
-                navigateToUserProfile(userId)
-            }
-            
-            recyclerViewComments.apply {
-                layoutManager = LinearLayoutManager(ctx)
-                adapter = commentAdapter
-            }
-            
-            // Yorumları yükle
-            loadCommentsForPhoto(photo.id, commentAdapter, progressBar, textEmptyComments)
-            
-            // Yorum gönderme butonunu ayarla
-            buttonSendComment.setOnClickListener {
-                val commentText = editTextComment.text.toString().trim()
-                if (commentText.isNotEmpty()) {
-                    addCommentToPhoto(photo.id, commentText, editTextComment, commentAdapter)
+                
+                // Yorum adaptörünü oluştur
+                val commentAdapter = CommentAdapter(emptyList()) { userId ->
+                    dialog.dismiss()
+                    navigateToUserProfile(userId)
                 }
+                
+                recyclerViewComments?.apply {
+                    layoutManager = LinearLayoutManager(ctx)
+                    adapter = commentAdapter
+                }
+                
+                // Yorumları yükle
+                if (recyclerViewComments != null && progressBar != null && textEmptyComments != null) {
+                    loadCommentsForPhoto(photo.id, commentAdapter, progressBar, textEmptyComments)
+                }
+                
+                // Yorum gönderme butonunu ayarla
+                buttonSendComment?.setOnClickListener {
+                    val commentText = editTextComment?.text?.toString()?.trim() ?: ""
+                    if (commentText.isNotEmpty() && editTextComment != null) {
+                        addCommentToPhoto(photo.id, commentText, editTextComment, commentAdapter)
+                    }
+                }
+                
+                // Kapat butonunu ayarla
+                buttonClose?.setOnClickListener {
+                    dialog.dismiss()
+                }
+                
+                // Dialog'u göster
+                dialog.show()
             }
-            
-            // Kapat butonunu ayarla
-            buttonClose.setOnClickListener {
-                dialog.dismiss()
-            }
-            
-            // Dialog'u göster
-            dialog.show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Fotoğraf detay diyaloğu gösterilirken hata: ${e.message}", e)
+            Toast.makeText(context, "Fotoğraf detayları gösterilirken bir hata oluştu", Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -751,6 +789,124 @@ class ProfileFragment : Fragment() {
             .replace(R.id.nav_host_fragment_activity_main, fragment)
             .addToBackStack(null)
             .commit()
+    }
+
+    /**
+     * Beğenen kullanıcıları gösteren popup'ı gösterir
+     */
+    private fun showLikesPopup(postId: String, anchorView: View) {
+        try {
+            // Popup layoutu oluştur
+            val inflater = LayoutInflater.from(requireContext())
+            val popupView = inflater.inflate(R.layout.popup_likes, null)
+            
+            // Popup penceresi oluştur
+            val popupWindow = PopupWindow(
+                popupView,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true
+            )
+            
+            // Popup için görünümleri bul
+            val recyclerView = popupView.findViewById<RecyclerView>(R.id.recycler_view_likes)
+            val progressBar = popupView.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmpty = popupView.findViewById<TextView>(R.id.text_empty)
+            
+            // RecyclerView'ı ayarla
+            val likeAdapter = LikeUserAdapter(emptyList()) { userId ->
+                // Kullanıcıya tıklandığında profil sayfasına git
+                popupWindow.dismiss()
+                navigateToUserProfile(userId)
+            }
+            
+            recyclerView.apply {
+                layoutManager = LinearLayoutManager(requireContext())
+                adapter = likeAdapter
+            }
+            
+            // Yükleniyor durumunu göster
+            progressBar.visibility = View.VISIBLE
+            textEmpty.visibility = View.GONE
+            
+            // Firestore'dan beğenenleri yükle
+            loadPostLikes(postId) { users, error ->
+                progressBar.visibility = View.GONE
+                
+                if (error != null) {
+                    textEmpty.text = "Yüklenirken hata: $error"
+                    textEmpty.visibility = View.VISIBLE
+                    return@loadPostLikes
+                }
+                
+                if (users.isEmpty()) {
+                    textEmpty.visibility = View.VISIBLE
+                } else {
+                    textEmpty.visibility = View.GONE
+                    likeAdapter.updateUsers(users)
+                }
+            }
+            
+            // Popup'ı göster
+            popupWindow.elevation = 10f
+            popupWindow.showAsDropDown(anchorView, 0, -anchorView.height)
+        } catch (e: Exception) {
+            Log.e(TAG, "Beğenenler popup gösterilirken hata: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Bir gönderiye beğeni yapan kullanıcıları yükler
+     */
+    private fun loadPostLikes(postId: String, callback: (List<LikeUserModel>, String?) -> Unit) {
+        firestore.collection("post_likes")
+            .whereEqualTo("postId", postId)
+            .get()
+            .addOnSuccessListener { documents ->
+                if (documents.isEmpty) {
+                    callback(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı ID'lerini topla
+                val userIds = documents.documents.mapNotNull { it.getString("userId") }.distinct()
+                
+                if (userIds.isEmpty()) {
+                    callback(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı bilgilerini yükle
+                firestore.collection("users")
+                    .whereIn("userId", userIds)
+                    .get()
+                    .addOnSuccessListener { userDocuments ->
+                        // Kullanıcı bilgilerini eşleştir
+                        val usersMap = userDocuments.documents.associateBy(
+                            { it.getString("userId") ?: "" },
+                            { doc ->
+                                LikeUserModel(
+                                    userId = doc.getString("userId") ?: "",
+                                    username = doc.getString("username") ?: "",
+                                    profilePhotoUrl = doc.getString("profilePhotoUrl") ?: ""
+                                )
+                            }
+                        )
+                        
+                        // Tüm beğenenleri kullanıcı bilgileriyle birleştir
+                        val likeUsers = userIds.mapNotNull { userId -> usersMap[userId] }
+                        
+                        callback(likeUsers, null)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Kullanıcı bilgilerini yüklerken hata: ${e.message}", e)
+                        callback(emptyList(), e.message)
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Beğeni bilgilerini yüklerken hata: ${e.message}", e)
+                callback(emptyList(), e.message)
+            }
     }
 
     override fun onDestroyView() {

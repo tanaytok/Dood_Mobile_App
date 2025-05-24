@@ -14,6 +14,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
@@ -123,6 +124,11 @@ class HomeFragment : Fragment() {
             onLikeClicked = { post ->
                 // Beğen butonuna tıklandığında
                 homeViewModel.likePost(post.postId)
+            },
+            onLikeLongClicked = { post, view ->
+                // Beğen butonuna uzun basıldığında
+                showLikesPopup(post.postId, view)
+                true // Olayı tükettiğimizi bildiriyoruz
             },
             onUserClicked = { userId ->
                 // Kullanıcı profiline git
@@ -304,6 +310,70 @@ class HomeFragment : Fragment() {
             
             // Dialog'u göster
             dialog.show()
+        }
+    }
+
+    /**
+     * Beğenen kullanıcıları gösteren popup'ı gösterir
+     */
+    private fun showLikesPopup(postId: String, anchorView: View) {
+        try {
+            // Popup layoutu oluştur
+            val inflater = LayoutInflater.from(requireContext())
+            val popupView = inflater.inflate(R.layout.popup_likes, null)
+            
+            // Popup penceresi oluştur
+            val popupWindow = PopupWindow(
+                popupView,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true
+            )
+            
+            // Popup için görünümleri bul
+            val recyclerView = popupView.findViewById<RecyclerView>(R.id.recycler_view_likes)
+            val progressBar = popupView.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmpty = popupView.findViewById<TextView>(R.id.text_empty)
+            
+            // RecyclerView'ı ayarla
+            val likeAdapter = LikeUserAdapter(emptyList()) { userId ->
+                // Kullanıcıya tıklandığında profil sayfasına git
+                popupWindow.dismiss()
+                navigateToUserProfile(userId)
+            }
+            
+            recyclerView.apply {
+                layoutManager = LinearLayoutManager(requireContext())
+                adapter = likeAdapter
+            }
+            
+            // Yükleniyor durumunu göster
+            progressBar.visibility = View.VISIBLE
+            textEmpty.visibility = View.GONE
+            
+            // Firestore'dan beğenenleri yükle
+            homeViewModel.loadPostLikes(postId) { users, error ->
+                progressBar.visibility = View.GONE
+                
+                if (error != null) {
+                    textEmpty.text = "Yüklenirken hata: $error"
+                    textEmpty.visibility = View.VISIBLE
+                    return@loadPostLikes
+                }
+                
+                if (users.isEmpty()) {
+                    textEmpty.visibility = View.VISIBLE
+                } else {
+                    textEmpty.visibility = View.GONE
+                    likeAdapter.updateUsers(users)
+                }
+            }
+            
+            // Popup'ı göster
+            popupWindow.elevation = 10f
+            popupWindow.showAsDropDown(anchorView, 0, -anchorView.height)
+        } catch (e: Exception) {
+            Log.e(TAG, "Beğenenler popup gösterilirken hata: ${e.message}", e)
         }
     }
 

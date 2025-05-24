@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.format.DateFormat
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -15,12 +16,16 @@ import android.view.ViewGroup
 import android.view.Window
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.example.dodoprojectv2.MainActivity
 import com.example.dodoprojectv2.R
@@ -29,6 +34,10 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
+import android.widget.ImageButton
+import com.example.dodoprojectv2.ui.home.CommentAdapter
+import com.example.dodoprojectv2.ui.home.CommentModel
+import java.util.Calendar
 
 class ProfileFragment : Fragment() {
 
@@ -133,9 +142,8 @@ class ProfileFragment : Fragment() {
             
             // Adaptörü oluştur ve bağla
             photoAdapter = PhotoAdapter(emptyList()) { photo ->
-                // Fotoğrafa tıklandığında yapılacak işlemler
-                Toast.makeText(context, "Fotoğraf: ${photo.taskName}", Toast.LENGTH_SHORT).show()
-                // Burada fotoğrafı tam ekran görüntüleme veya başka bir işlem yapılabilir
+                // Fotoğrafa tıklandığında detay diyaloğunu göster
+                showPhotoDetailDialog(photo)
             }
             
             binding.recyclerViewPhotos.adapter = photoAdapter
@@ -414,6 +422,335 @@ class ProfileFragment : Fragment() {
         } catch (e: Exception) {
             Log.e(TAG, "Ayarlar dialogu gösterilirken hata: ${e.message}", e)
         }
+    }
+
+    // Fotoğraf detay diyaloğunu göster
+    private fun showPhotoDetailDialog(photo: UserPhoto) {
+        context?.let { ctx ->
+            // Dialog oluştur
+            val dialog = Dialog(ctx)
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_photo_detail)
+            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            
+            // Dialog bileşenlerini bul
+            val imagePhoto = dialog.findViewById<ImageView>(R.id.image_photo)
+            val textTaskName = dialog.findViewById<TextView>(R.id.text_task_name)
+            val textDate = dialog.findViewById<TextView>(R.id.text_date)
+            val textLikeCount = dialog.findViewById<TextView>(R.id.text_like_count)
+            val textCommentCount = dialog.findViewById<TextView>(R.id.text_comment_count)
+            val buttonClose = dialog.findViewById<View>(R.id.button_close)
+            val recyclerViewComments = dialog.findViewById<RecyclerView>(R.id.recycler_view_comments)
+            val editTextComment = dialog.findViewById<EditText>(R.id.edit_text_comment)
+            val buttonSendComment = dialog.findViewById<ImageButton>(R.id.button_send_comment)
+            val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmptyComments = dialog.findViewById<TextView>(R.id.text_empty_comments)
+            val buttonTogglePanel = dialog.findViewById<ImageButton>(R.id.button_toggle_panel)
+            val panelDetail = dialog.findViewById<View>(R.id.panel_detail)
+            val guideline = dialog.findViewById<View>(R.id.guideline)
+            
+            // Toolbar başlığını ayarla
+            dialog.findViewById<TextView>(R.id.text_title).text = "Görev Fotoğrafı"
+            
+            // Fotoğraf detaylarını göster
+            Glide.with(ctx)
+                .load(photo.photoUrl)
+                .placeholder(R.drawable.placeholder_image)
+                .into(imagePhoto)
+            
+            textTaskName.text = photo.taskName
+            
+            // Tarihi formatla
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = photo.timestamp
+            val dateFormat = DateFormat.format("dd MMMM yyyy", calendar).toString()
+            textDate.text = dateFormat
+            
+            // Beğeni ve yorum sayılarını yükle
+            firestore.collection("user_photos").document(photo.id)
+                .get()
+                .addOnSuccessListener { document ->
+                    val likesCount = document.getLong("likesCount")?.toInt() ?: 0
+                    val commentsCount = document.getLong("commentsCount")?.toInt() ?: 0
+                    
+                    textLikeCount.text = "$likesCount beğeni"
+                    textCommentCount.text = "$commentsCount yorum"
+                }
+            
+            // Panel aç/kapat tuşu için durum değişkeni
+            var isPanelOpen = true
+            
+            // Panel aç/kapat tuşu için tıklama dinleyicisi
+            buttonTogglePanel.setOnClickListener {
+                isPanelOpen = !isPanelOpen
+                
+                if (isPanelOpen) {
+                    // Paneli aç
+                    panelDetail.visibility = View.VISIBLE
+                    buttonTogglePanel.setImageResource(R.drawable.ic_arrow_right)
+                    
+                    // Guideline'ı normal konumuna getir
+                    val params = guideline.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                    params.guidePercent = 0.45f
+                    guideline.layoutParams = params
+                } else {
+                    // Paneli kapat
+                    panelDetail.visibility = View.GONE
+                    buttonTogglePanel.setImageResource(R.drawable.ic_arrow_left)
+                    
+                    // Guideline'ı sağa kaydır (tam ekran fotoğraf için)
+                    val params = guideline.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                    params.guidePercent = 0.97f
+                    guideline.layoutParams = params
+                }
+            }
+            
+            // Yorum adaptörünü oluştur
+            val commentAdapter = CommentAdapter(emptyList()) { userId ->
+                dialog.dismiss()
+                navigateToUserProfile(userId)
+            }
+            
+            recyclerViewComments.apply {
+                layoutManager = LinearLayoutManager(ctx)
+                adapter = commentAdapter
+            }
+            
+            // Yorumları yükle
+            loadCommentsForPhoto(photo.id, commentAdapter, progressBar, textEmptyComments)
+            
+            // Yorum gönderme butonunu ayarla
+            buttonSendComment.setOnClickListener {
+                val commentText = editTextComment.text.toString().trim()
+                if (commentText.isNotEmpty()) {
+                    addCommentToPhoto(photo.id, commentText, editTextComment, commentAdapter)
+                }
+            }
+            
+            // Kapat butonunu ayarla
+            buttonClose.setOnClickListener {
+                dialog.dismiss()
+            }
+            
+            // Dialog'u göster
+            dialog.show()
+        }
+    }
+    
+    private fun loadCommentsForPhoto(photoId: String, adapter: CommentAdapter, progressBar: ProgressBar, emptyText: TextView) {
+        progressBar.visibility = View.VISIBLE
+        emptyText.visibility = View.GONE
+        
+        firestore.collection("post_comments")
+            .whereEqualTo("postId", photoId)
+            .get()
+            .addOnSuccessListener { documents ->
+                progressBar.visibility = View.GONE
+                
+                if (documents.isEmpty) {
+                    emptyText.visibility = View.VISIBLE
+                    adapter.updateComments(emptyList())
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı bilgilerini depolamak için map
+                val userInfoMap = mutableMapOf<String, Pair<String, String>>() // userId -> (username, profilePhotoUrl)
+                
+                // Önce tüm kullanıcı bilgilerini almak için kullanıcı ID'lerini topla
+                val userIds = documents.documents.mapNotNull { it.getString("userId") }.distinct()
+                
+                if (userIds.isEmpty()) {
+                    emptyText.visibility = View.VISIBLE
+                    adapter.updateComments(emptyList())
+                    return@addOnSuccessListener
+                }
+                
+                // Kullanıcı bilgilerini yükle
+                firestore.collection("users")
+                    .whereIn("userId", userIds)
+                    .get()
+                    .addOnSuccessListener { userDocuments ->
+                        // Kullanıcı bilgilerini map'e kaydet
+                        for (userDoc in userDocuments) {
+                            val userId = userDoc.getString("userId") ?: continue
+                            val username = userDoc.getString("username") ?: ""
+                            val profilePhotoUrl = userDoc.getString("profilePhotoUrl") ?: ""
+                            userInfoMap[userId] = Pair(username, profilePhotoUrl)
+                        }
+                        
+                        // Yorumları oluştur
+                        val commentsList = documents.mapNotNull { doc ->
+                            try {
+                                val userId = doc.getString("userId") ?: return@mapNotNull null
+                                val userInfo = userInfoMap[userId] ?: Pair("", "")
+                                
+                                CommentModel(
+                                    id = doc.id,
+                                    postId = doc.getString("postId") ?: "",
+                                    userId = userId,
+                                    username = userInfo.first,
+                                    userProfileUrl = userInfo.second,
+                                    text = doc.getString("text") ?: "",
+                                    timestamp = doc.getLong("timestamp") ?: 0
+                                )
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Yorum verisi dönüştürülürken hata: ${e.message}", e)
+                                null
+                            }
+                        }
+                        
+                        // Yorumları zaman damgasına göre manuel olarak sırala (en yeniden en eskiye)
+                        val sortedComments = commentsList.sortedByDescending { it.timestamp }
+                        
+                        if (sortedComments.isEmpty()) {
+                            emptyText.visibility = View.VISIBLE
+                        } else {
+                            emptyText.visibility = View.GONE
+                        }
+                        
+                        adapter.updateComments(sortedComments)
+                    }
+                    .addOnFailureListener { e ->
+                        progressBar.visibility = View.GONE
+                        Log.e(TAG, "Kullanıcı bilgileri yüklenirken hata: ${e.message}", e)
+                        Toast.makeText(context, "Yorumlar yüklenemedi", Toast.LENGTH_SHORT).show()
+                    }
+            }
+            .addOnFailureListener { e ->
+                progressBar.visibility = View.GONE
+                Log.e(TAG, "Yorumlar yüklenirken hata: ${e.message}", e)
+                Toast.makeText(context, "Yorumlar yüklenemedi", Toast.LENGTH_SHORT).show()
+            }
+    }
+    
+    private fun addCommentToPhoto(photoId: String, commentText: String, editText: EditText, adapter: CommentAdapter) {
+        val currentUser = auth.currentUser ?: return
+        
+        // Önce kullanıcı bilgilerini al
+        firestore.collection("users")
+            .whereEqualTo("userId", currentUser.uid)
+            .get()
+            .addOnSuccessListener { userDocuments ->
+                if (userDocuments.isEmpty) {
+                    Toast.makeText(context, "Kullanıcı bilgileri alınamadı", Toast.LENGTH_SHORT).show()
+                    return@addOnSuccessListener
+                }
+                
+                val userDoc = userDocuments.documents.first()
+                val username = userDoc.getString("username") ?: ""
+                val profilePhotoUrl = userDoc.getString("profilePhotoUrl") ?: ""
+                
+                val commentData = hashMapOf(
+                    "postId" to photoId,
+                    "userId" to currentUser.uid,
+                    "text" to commentText.trim(),
+                    "timestamp" to System.currentTimeMillis()
+                )
+                
+                firestore.collection("post_comments")
+                    .add(commentData)
+                    .addOnSuccessListener { documentReference ->
+                        // Yorum sayısını güncelle
+                        updatePostCommentCount(photoId)
+                        
+                        // UI'ı güncelle
+                        editText.text.clear()
+                        
+                        // Yorumlar listesine yeni yorumu ekle
+                        val newComment = CommentModel(
+                            id = documentReference.id,
+                            postId = photoId,
+                            userId = currentUser.uid,
+                            username = username,
+                            userProfileUrl = profilePhotoUrl,
+                            text = commentText.trim(),
+                            timestamp = System.currentTimeMillis()
+                        )
+                        
+                        // Mevcut yorumları al ve en başa yeni yorumu ekle
+                        val currentComments = adapter.getComments()
+                        val updatedComments = listOf(newComment) + currentComments
+                        adapter.updateComments(updatedComments)
+                        
+                        // Fotoğraf sahibini bul ve bildirim gönder
+                        firestore.collection("user_photos").document(photoId)
+                            .get()
+                            .addOnSuccessListener { photoDoc ->
+                                val photoOwnerId = photoDoc.getString("userId")
+                                if (photoOwnerId != null && photoOwnerId != currentUser.uid) {
+                                    // Kendi gönderimize yorum yaparsak bildirim gönderme
+                                    sendCommentNotification(photoOwnerId, currentUser.uid, photoId, commentText.trim())
+                                }
+                            }
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(context, "Yorum eklenemedi: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+            }
+    }
+    
+    private fun updatePostCommentCount(postId: String) {
+        firestore.collection("user_photos").document(postId)
+            .get()
+            .addOnSuccessListener { document ->
+                val currentComments = document.getLong("commentsCount")?.toInt() ?: 0
+                val newComments = currentComments + 1
+                
+                firestore.collection("user_photos").document(postId)
+                    .update("commentsCount", newComments)
+            }
+    }
+    
+    private fun sendCommentNotification(receiverId: String, senderId: String, postId: String, commentText: String) {
+        // Yorum yapan kullanıcının bilgilerini al
+        firestore.collection("users")
+            .whereEqualTo("userId", senderId)
+            .get()
+            .addOnSuccessListener { documents ->
+                if (documents.isEmpty) {
+                    return@addOnSuccessListener
+                }
+                
+                val senderDoc = documents.documents.first()
+                val senderUsername = senderDoc.getString("username") ?: "Bir kullanıcı"
+                
+                // Yorum metni çok uzunsa kısalt
+                val shortenedComment = if (commentText.length > 30) 
+                    "${commentText.substring(0, 30)}..." 
+                else 
+                    commentText
+                
+                // Bildirim verisi oluştur
+                val notificationData = hashMapOf(
+                    "type" to "comment",
+                    "receiverId" to receiverId,
+                    "senderId" to senderId,
+                    "senderUsername" to senderUsername,
+                    "message" to "$senderUsername fotoğrafınıza yorum yaptı: \"$shortenedComment\"",
+                    "timestamp" to System.currentTimeMillis(),
+                    "isRead" to false,
+                    "relatedItemId" to postId
+                )
+                
+                // Bildirimi Firestore'a ekle
+                firestore.collection("notifications")
+                    .add(notificationData)
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Yorum bildirimi eklenirken hata: ${e.message}", e)
+                    }
+            }
+    }
+    
+    private fun navigateToUserProfile(userId: String) {
+        val fragment = ProfileFragment()
+        val bundle = Bundle()
+        bundle.putString("userId", userId)
+        fragment.arguments = bundle
+        
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_activity_main, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 
     override fun onDestroyView() {

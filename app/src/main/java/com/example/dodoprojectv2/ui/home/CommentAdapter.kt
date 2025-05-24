@@ -32,6 +32,10 @@ class CommentAdapter(
         notifyDataSetChanged()
     }
 
+    fun getComments(): List<CommentModel> {
+        return comments
+    }
+
     inner class CommentViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val imageUserProfile: ImageView = itemView.findViewById(R.id.image_user_profile)
         private val textUsername: TextView = itemView.findViewById(R.id.text_username)

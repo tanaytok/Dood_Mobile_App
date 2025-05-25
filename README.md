@@ -137,7 +137,7 @@ app/
 
 **Tan Aytok**
 - 📧 Email: tanaytok@hotmail.com
-- 💼 LinkedIn: linkedin.com/in/profile]](https://www.linkedin.com/in/tanaytok/
+- 💼 LinkedIn: https://www.linkedin.com/in/tanaytok/
 
 **Yasin Baran Kaplan**
 - 📧 Email: kaplanyasin2001@gmail.com

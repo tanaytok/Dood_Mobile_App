@@ -143,7 +143,7 @@ app/
 - 📧 Email: kaplanyasin2001@gmail.com
 - 💼 LinkedIn: https://www.linkedin.com/in/tanaytok/](https://www.linkedin.com/in/yasin-baran-kaplan/
 
-  **Atahan Bozok Özmutlu**
+**Atahan Bozok Özmutlu**
 - 📧 Email: bozok317@gmail.com
 - 💼 LinkedIn: https://www.linkedin.com/in/atahanbozoközmutlu/
 

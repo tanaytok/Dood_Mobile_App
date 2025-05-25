@@ -12,6 +12,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkInfo
 import com.example.dodoprojectv2.MyApplication
 import com.example.dodoprojectv2.work.TaskGeneratorWorker
 import com.google.firebase.auth.FirebaseAuth
@@ -406,14 +407,15 @@ class TasksViewModel : ViewModel() {
     private fun fallbackToSampleTasks() {
         Log.d(TAG, "Fallback: Sample görevler gösteriliyor")
         _isLoading.value = false
-        _errorMessage.value = "İnternet bağlantısı gerekli. Sample görevler gösteriliyor."
-        _isEmpty.value = true
+        _errorMessage.value = "Görevler yüklenemedi. Örnek görevler gösteriliyor."
         // Sample görevleri göster
         createSampleTasksIfNeeded()
     }
 
     private fun triggerTaskGeneration(userId: String, dateString: String) {
+        Log.d(TAG, "AI görev üretici başlatılıyor...")
         _isLoading.value = true
+        _errorMessage.value = "AI görevler oluşturuluyor..."
         
         // WorkManager ile görev oluşturmayı başlat
         val workRequest = OneTimeWorkRequestBuilder<TaskGeneratorWorker>()
@@ -422,20 +424,51 @@ class TasksViewModel : ViewModel() {
         val workManager = WorkManager.getInstance(MyApplication.appContext)
         workManager.enqueue(workRequest)
         
-        // İşlem başladıktan 3 saniye sonra görevleri yeniden yüklemeyi dene
+        // WorkManager'ın durumunu izle
+        workManager.getWorkInfoByIdLiveData(workRequest.id).observeForever { workInfo ->
+            when (workInfo?.state) {
+                androidx.work.WorkInfo.State.SUCCEEDED -> {
+                    Log.d(TAG, "AI görev üretici başarılı, görevler yeniden yükleniyor")
+                    // İşlem başarılı, görevleri yeniden yükle
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        loadTasks()
+                    }, 1000)
+                }
+                androidx.work.WorkInfo.State.FAILED -> {
+                    Log.w(TAG, "AI görev üretici başarısız, fallback görevleri gösteriliyor")
+                    // AI başarısız, fallback görevleri göster
+                    createSampleTasksIfNeeded()
+                }
+                androidx.work.WorkInfo.State.CANCELLED -> {
+                    Log.w(TAG, "AI görev üretici iptal edildi, fallback görevleri gösteriliyor")
+                    createSampleTasksIfNeeded()
+                }
+                else -> {
+                    // RUNNING, ENQUEUED, BLOCKED durumları - bekle
+                    Log.d(TAG, "AI görev üretici durumu: ${workInfo?.state}")
+                }
+            }
+        }
+        
+        // 10 saniye timeout - eğer hala işlem devam ediyorsa fallback görevleri göster
         Handler(Looper.getMainLooper()).postDelayed({
-            loadTasks()
-        }, 3000)
+            if (_isLoading.value == true) {
+                Log.w(TAG, "AI görev üretici timeout, fallback görevleri gösteriliyor")
+                createSampleTasksIfNeeded()
+            }
+        }, 10000)
     }
 
     private fun createSampleTasksIfNeeded() {
-        // Örnek görevleri oluştur (geliştirme aşamasında)
+        // Örnek görevleri oluştur (Gemini API kullanılamadığında)
+        Log.d(TAG, "Sample görevleri oluşturuluyor (API kullanılamıyor)")
+        
         val calendar = Calendar.getInstance()
         calendar.add(Calendar.DAY_OF_YEAR, 1) // 1 gün geçerli
         val expiresAt = calendar.timeInMillis
         
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val dateString = dateFormat.format(calendar.time)
+        val dateString = dateFormat.format(Date()) // Bugünkü tarih
         
         val currentUser = auth.currentUser
         val userId = currentUser?.uid ?: ""
@@ -481,7 +514,9 @@ class TasksViewModel : ViewModel() {
         
         _tasks.value = sampleTasks
         _isEmpty.value = false
-        Log.d(TAG, "Örnek görevler oluşturuldu")
+        _isLoading.value = false
+        _errorMessage.value = "AI görev üretici geçici olarak kullanılamıyor. Örnek görevler gösteriliyor."
+        Log.d(TAG, "Sample görevler oluşturuldu ve kullanıcıya gösterildi")
     }
     
     private fun startTimeUntilResetCounter() {
@@ -523,24 +558,23 @@ class TasksViewModel : ViewModel() {
     fun updateTaskProgress(taskId: String, newCount: Int, isCompleted: Boolean) {
         Log.d(TAG, "updateTaskProgress çağrıldı: taskId=$taskId, newCount=$newCount, isCompleted=$isCompleted")
         
-        if (taskId.isEmpty()) {
-            Log.e(TAG, "updateTaskProgress: taskId boş, güncelleme yapılamıyor")
-            return
-        }
-        
         try {
-            // Mevcut görevleri güncelle - daha hızlı UI yanıtı için
-            val currentTasks = _tasks.value?.toMutableList() ?: mutableListOf()
-            val taskIndex = currentTasks.indexOfFirst { it.id == taskId }
+            val currentTasks = _tasks.value ?: return
+            Log.d(TAG, "Mevcut görev sayısı: ${currentTasks.size}")
             
+            // Görevin lokal listesindeki indexini bul
+            val taskIndex = currentTasks.indexOfFirst { it.id == taskId }
             if (taskIndex != -1) {
-                // Görevi UI'da güncelle
+                // Görevi güncelle
                 val updatedTask = currentTasks[taskIndex].copy(
                     completedCount = newCount,
                     isCompleted = isCompleted
                 )
-                currentTasks[taskIndex] = updatedTask
-                _tasks.value = currentTasks
+                
+                // Listeyi güncelle
+                val updatedTasks = currentTasks.toMutableList()
+                updatedTasks[taskIndex] = updatedTask
+                _tasks.value = updatedTasks
                 
                 Log.d(TAG, "Görev yerel olarak güncellendi: $updatedTask")
                 
@@ -550,36 +584,103 @@ class TasksViewModel : ViewModel() {
                     addPointsToUser(pointsToAdd)
                     updateWeeklyScore(pointsToAdd)
                     Log.d(TAG, "Görev tamamlandı, $pointsToAdd puan ekleniyor ve haftalık skor güncelleniyor")
+                    
+                    // 3 görev tamamlandı mı kontrol et
+                    checkAndUpdateStreakIfAllTasksCompleted(updatedTasks)
                 }
             }
             
-            // Firestore'da güncelle
-            val taskRef = firestore.collection("tasks").document(taskId)
-            val updates = hashMapOf<String, Any>(
-                "completedCount" to newCount,
-                "isCompleted" to isCompleted
-            )
-            
-            // Tamamlanmışsa ek bilgiler ekle
-            if (isCompleted) {
-                updates["status"] = "completed"
-                updates["completedAt"] = System.currentTimeMillis()
+            // Firestore'da güncelle - daily_tasks collection'ında güncelleme
+            val currentUser = auth.currentUser
+            if (currentUser == null) {
+                Log.e(TAG, "Kullanıcı oturum açmamış")
+                _errorMessage.value = "Oturum açmanız gerekiyor"
+                return
             }
             
-            taskRef.update(updates)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Görev Firestore'da güncellendi: taskId=$taskId, newCount=$newCount, isCompleted=$isCompleted")
-                    
-                    // Görevleri yenile
-                    loadTasks()
+            // Günlük görevleri daily_tasks collection'ından güncelle
+            val today = Calendar.getInstance()
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val dateString = dateFormat.format(today.time)
+            
+            Log.d(TAG, "Firestore güncelleme başlatılıyor - dateString: $dateString, taskId: $taskId")
+            
+            firestore.collection("daily_tasks")
+                .document(dateString)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        val tasks = document.get("tasks") as? List<Map<String, Any>>
+                        if (tasks != null) {
+                            val updatedTasks = tasks.toMutableList()
+                            
+                            // Task'i ID'ye göre bul ve güncelle
+                            val taskIndex = updatedTasks.indexOfFirst { task ->
+                                task["id"] as? String == taskId
+                            }
+                            
+                            if (taskIndex != -1) {
+                                val currentTask = updatedTasks[taskIndex].toMutableMap()
+                                currentTask["completedCount"] = newCount
+                                currentTask["isCompleted"] = isCompleted
+                                
+                                // Tamamlanmışsa ek bilgiler ekle
+                                if (isCompleted) {
+                                    currentTask["status"] = "completed"
+                                    currentTask["completedAt"] = System.currentTimeMillis()
+                                }
+                                
+                                updatedTasks[taskIndex] = currentTask
+                                
+                                // Güncellenmiş task listesini kaydet
+                                firestore.collection("daily_tasks")
+                                    .document(dateString)
+                                    .update("tasks", updatedTasks)
+                                    .addOnSuccessListener {
+                                        Log.d(TAG, "Görev daily_tasks'da güncellendi: taskId=$taskId, newCount=$newCount, isCompleted=$isCompleted")
+                                        
+                                        // Görevleri yenile
+                                        loadTasks()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Log.e(TAG, "Daily tasks güncellenirken hata: ${e.message}", e)
+                                        _errorMessage.value = "Görev güncellenirken hata oluştu: ${e.message}"
+                                    }
+                            } else {
+                                Log.e(TAG, "Görev bulunamadı: taskId=$taskId")
+                                _errorMessage.value = "Görev bulunamadı"
+                            }
+                        } else {
+                            Log.e(TAG, "Tasks listesi bulunamadı veya geçersiz format")
+                            _errorMessage.value = "Görevler listesi bulunamadı"
+                        }
+                    } else {
+                        Log.e(TAG, "Daily tasks document bulunamadı: $dateString")
+                        _errorMessage.value = "Günlük görevler bulunamadı"
+                    }
                 }
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "Görev güncellenirken hata: ${e.message}", e)
+                    Log.e(TAG, "Daily tasks document alınırken hata: ${e.message}", e)
                     _errorMessage.value = "Görev güncellenirken hata oluştu: ${e.message}"
                 }
+                
         } catch (e: Exception) {
             Log.e(TAG, "updateTaskProgress sırasında hata: ${e.message}", e)
             _errorMessage.value = "Görev güncellenirken hata oluştu: ${e.message}"
+        }
+    }
+    
+    private fun checkAndUpdateStreakIfAllTasksCompleted(tasks: List<Task>) {
+        // Günlük görevlerin tamamı tamamlandı mı kontrol et
+        val completedTasksCount = tasks.count { it.isCompleted }
+        val totalTasksCount = tasks.size
+        
+        Log.d(TAG, "Görev durumu kontrol ediliyor: $completedTasksCount/$totalTasksCount tamamlandı")
+        
+        // Eğer 3 görev varsa ve hepsi tamamlandıysa seriyi artır
+        if (totalTasksCount >= 3 && completedTasksCount >= 3) {
+            Log.d(TAG, "Tüm günlük görevler tamamlandı! Seri artırılıyor.")
+            incrementUserStreak()
         }
     }
     

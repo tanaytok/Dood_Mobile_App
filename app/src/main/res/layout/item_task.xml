@@ -34,10 +34,38 @@
             android:textColor="@android:color/darker_gray"
             android:textSize="16sp"
             android:textStyle="bold"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/icon_task_completed"
             app:layout_constraintTop_toTopOf="@id/text_task_title"
             app:layout_constraintBottom_toBottomOf="@id/text_task_title"
             tools:text="0/3" />
+
+        <!-- Tamamlanma ikonu -->
+        <ImageView
+            android:id="@+id/icon_task_completed"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_task_completed"
+            android:background="@drawable/circle_green_background"
+            android:padding="6dp"
+            android:visibility="gone"
+            android:contentDescription="Görev Tamamlandı"
+            app:tint="@android:color/white"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/text_task_title"
+            app:layout_constraintBottom_toBottomOf="@id/text_task_title" />
+
+        <!-- Tamamlanma overlay -->
+        <View
+            android:id="@+id/overlay_completed"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="#66E8F5E8"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
         <ProgressBar
             android:id="@+id/progress_bar_task"

@@ -73,6 +73,9 @@ class MainActivity : AppCompatActivity() {
         
         // Check if user is logged in
         checkCurrentUser()
+        
+        // TaskCompletionActivity'den gelen intent'i kontrol et
+        handleTaskCompletionIntent()
     }
     
     private fun setupNotificationBadge() {
@@ -151,7 +154,14 @@ class MainActivity : AppCompatActivity() {
             finish()
         } else {
             // User is signed in, can display user info if needed
-            Toast.makeText(this, "Hoş geldiniz, ${currentUser.email}", Toast.LENGTH_SHORT).show()
+            val displayName = currentUser.displayName
+            val userName = if (!displayName.isNullOrEmpty()) {
+                displayName
+            } else {
+                // DisplayName yoksa email'den @ öncesini al
+                currentUser.email?.substringBefore("@") ?: "Kullanıcı"
+            }
+            Toast.makeText(this, "Hoş geldiniz, $userName", Toast.LENGTH_SHORT).show()
             
             // Okunmamış bildirimleri kontrol et
             cameraViewModel.checkUnreadNotifications()
@@ -173,5 +183,14 @@ class MainActivity : AppCompatActivity() {
         }
         
         Log.d("MainActivity", "Firestore settings configured with persistence enabled")
+    }
+    
+    private fun handleTaskCompletionIntent() {
+        // TaskCompletionActivity'den "Görevlere Dön" ile gelindi mi kontrol et
+        if (intent.getBooleanExtra("SHOW_TASKS_FRAGMENT", false)) {
+            // Tasks fragment'ını göster
+            navController.navigate(R.id.navigation_tasks)
+            Log.d("MainActivity", "TaskCompletionActivity'den yönlendirme: Tasks fragment'ı gösteriliyor")
+        }
     }
 }

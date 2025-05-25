@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -34,6 +35,7 @@ import com.example.dodoprojectv2.databinding.ActivityCameraBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
@@ -57,7 +59,7 @@ import kotlin.math.sqrt
 class CameraActivity : AppCompatActivity() {
     private lateinit var binding: ActivityCameraBinding
     private lateinit var cameraExecutor: ExecutorService
-    private var imageCapture: ImageCapture? = null
+    private lateinit var imageCapture: ImageCapture
     
     private lateinit var auth: FirebaseAuth
     private lateinit var firestore: FirebaseFirestore
@@ -71,10 +73,22 @@ class CameraActivity : AppCompatActivity() {
     // Çekilen fotoğrafı tutmak için değişken
     private var capturedBitmap: Bitmap? = null
     
+    // Fallback işlem kontrolü
+    private var isFallbackProcessing = false
+    
+    // Timeout handler kontrolü
+    private var timeoutHandler: Handler? = null
+    private var timeoutRunnable: Runnable? = null
+    
     private val TAG = "CameraActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        Log.d(TAG, "🚀 CameraActivity onCreate başlatıldı")
+        Log.d(TAG, "🔍 İsEmulator: ${isEmulator()}")
+        Log.d(TAG, "📱 Cihaz: ${Build.MANUFACTURER} ${Build.MODEL}")
+        
         binding = ActivityCameraBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
@@ -102,42 +116,110 @@ class CameraActivity : AppCompatActivity() {
         }
 
         // Set up the listeners for take photo and video capture buttons
-        binding.buttonCapturePhoto.setOnClickListener { takePhoto() }
+        binding.buttonCapturePhoto.setOnClickListener { 
+            Log.d(TAG, "🎯 BUTTON CLICKED: Fotoğraf çek butonu tıklandı!")
+            
+            Log.d(TAG, "🔍 ImageCapture initialized: ${::imageCapture.isInitialized}")
+            Log.d(TAG, "🔍 IsEmulator: ${isEmulator()}")
+            Log.d(TAG, "🔍 Activity state - isDestroyed: $isDestroyed, isFinishing: $isFinishing")
+            
+            if (::imageCapture.isInitialized) {
+                Log.d(TAG, "📷 ImageCapture initialized, takePicture çağrılıyor")
+                takePicture()
+            } else {
+                Log.w(TAG, "⚠️ ImageCapture henüz hazır değil")
+                
+                if (isEmulator()) {
+                    Log.d(TAG, "🤖 EMÜLATÖR: Test fotoğrafı oluşturuluyor")
+                    createFallbackPhoto()
+                } else {
+                    Log.d(TAG, "📱 GERÇEK CİHAZ: Bekleniyor")
+                    Toast.makeText(this, "Kamera henüz hazır değil, lütfen bekleyin", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
         
         // İptal et butonunu ayarla
         binding.buttonCancel.setOnClickListener {
+            Log.d(TAG, "❌ Cancel butonu tıklandı")
             finish()
+        }
+        
+        // DEBUG: Test butonu ekle (sadece emülatör için)
+        if (isEmulator()) {
+            binding.buttonCancel.text = "Test Foto"
+            binding.buttonCancel.setOnClickListener {
+                Log.d(TAG, "🧪 TEST BUTONU: Fallback fotoğraf zorla oluşturuluyor")
+                Toast.makeText(this, "TEST: Fallback fotoğraf oluşturuluyor", Toast.LENGTH_SHORT).show()
+                createFallbackPhoto()
+            }
         }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
-    private fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture
+    private fun takePicture() {
+        Log.d(TAG, "📸 takePicture() başlatıldı")
         
-        if (imageCapture == null) {
-            Log.e(TAG, "imageCapture null, kamera başlatılamamış olabilir")
-            Toast.makeText(baseContext, "Kamera hazır değil, lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+        // Activity lifecycle kontrolü
+        if (isDestroyed || isFinishing) {
+            Log.w(TAG, "⚠️ Activity destroyed/finishing, işlem iptal edildi")
+            return
+        }
+
+        if (!::imageCapture.isInitialized) {
+            Log.e(TAG, "❌ imageCapture initialize edilmemiş!")
+            if (isEmulator()) {
+                Log.d(TAG, "🤖 EMÜLATÖR: Fallback foto oluşturuluyor")
+                createFallbackPhoto()
+            } else {
+                handleCameraError(Exception("ImageCapture hazır değil"))
+            }
+            return
+        }
+
+        Log.d(TAG, "💾 Output directory oluşturuluyor...")
+        
+        // İlk olarak kamera kullanılabilir mi kontrol et
+        if (!::imageCapture.isInitialized) {
+            Log.e(TAG, "ImageCapture henüz başlatılmamış")
+            Toast.makeText(this, "Kamera hazırlanıyor, lütfen bekleyin", Toast.LENGTH_SHORT).show()
+            
+            // Emülatörde kamera problemi varsa fallback mekanizması
+            if (isEmulator()) {
+                Log.d(TAG, "EMÜLATÖR MODU: Kamera hazır değil, fallback fotoğraf oluşturuluyor")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    createFallbackPhoto()
+                }, 1000)
+            }
             return
         }
         
-        Log.d(TAG, "Fotoğraf çekme işlemi başlatılıyor...")
-        Toast.makeText(baseContext, "Fotoğraf çekiliyor...", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "takePicture başlatıldı")
+
+        // Create time-stamped output file to hold the image
+        val photoFile = File(
+            outputDirectory,
+            SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis()) + ".jpg"
+        )
+
+        // Create output options object which contains file + metadata
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
         try {
-            // Create time-stamped output file to hold the image
-            val photoFile = File(
-                outputDirectory,
-                SimpleDateFormat(
-                    FILENAME_FORMAT, Locale.US
-                ).format(System.currentTimeMillis()) + ".jpg")
+            // Emülatör için özel handling
+            if (isEmulator()) {
+                Log.d(TAG, "EMÜLATÖR MODU: Özel fotoğraf çekme modu")
+                
+                // Emülatör için timeout mekanizması (10 saniye - gerçek kamera için)
+                timeoutHandler = Handler(Looper.getMainLooper())
+                timeoutRunnable = Runnable {
+                    Log.w(TAG, "🤖 EMÜLATÖR TIMEOUT: Kamera callback gelmedi, fallback photo oluşturuluyor")
+                    createFallbackPhoto()
+                }
+                timeoutHandler?.postDelayed(timeoutRunnable!!, 10000) // 10 saniye timeout
+            }
             
-            Log.d(TAG, "Fotoğraf dosyası oluşturuldu: ${photoFile.absolutePath}")
-
-            // Create output options object which contains file + metadata
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
             // Set up image capture listener, which is triggered after photo has been taken
             imageCapture.takePicture(
                 outputOptions,
@@ -145,25 +227,77 @@ class CameraActivity : AppCompatActivity() {
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onError(exc: ImageCaptureException) {
                         Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                        Toast.makeText(baseContext, "Fotoğraf çekilemedi: ${exc.message}", 
-                            Toast.LENGTH_SHORT).show()
+                        
+                        // Emülatörde hata varsa fallback kullan
+                        if (isEmulator()) {
+                            Log.d(TAG, "EMÜLATÖR MODU: Kamera hatası, fallback fotoğraf oluşturuluyor")
+                            createFallbackPhoto()
+                            return
+                        }
+                        
+                        // Daha detaylı hata mesajı
+                        val errorMessage = when (exc.imageCaptureError) {
+                            ImageCapture.ERROR_CAMERA_CLOSED -> "Kamera kapandı, tekrar başlatılıyor..."
+                            ImageCapture.ERROR_CAPTURE_FAILED -> "Fotoğraf çekme işlemi başarısız"
+                            ImageCapture.ERROR_FILE_IO -> "Dosya yazma hatası"
+                            ImageCapture.ERROR_INVALID_CAMERA -> "Geçersiz kamera"
+                            else -> "Kamera hatası: ${exc.message}"
+                        }
+                        
+                        Toast.makeText(baseContext, errorMessage, Toast.LENGTH_SHORT).show()
+                        
+                        // Kamera kapandıysa tekrar başlatmayı dene
+                        if (exc.imageCaptureError == ImageCapture.ERROR_CAMERA_CLOSED) {
+                            Log.d(TAG, "Kamera kapandı, tekrar başlatılıyor...")
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                try {
+                                    if (!isDestroyed && !isFinishing) {
+                                        startCamera()
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Kamera tekrar başlatılamadı: ${e.message}")
+                                }
+                            }, 1000)
+                        }
                     }
 
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        Log.d(TAG, "✅ onImageSaved callback geldi!")
+                        
+                        // Emülatör timeout'unu iptal et - gerçek fotoğraf geldi
+                        timeoutHandler?.removeCallbacks(timeoutRunnable!!)
+                        timeoutHandler = null
+                        timeoutRunnable = null
+                        
+                        if (isDestroyed || isFinishing) {
+                            Log.w(TAG, "Activity destroy edilmiş, fotoğraf işlenmeyecek")
+                            return
+                        }
+                        
                         val savedUri = Uri.fromFile(photoFile)
                         val msg = "Fotoğraf kaydedildi: $savedUri"
                         Log.d(TAG, msg)
                         
+                        // Emülatör bilgisi
+                        if (isEmulator()) {
+                            Log.d(TAG, "EMÜLATÖR MODU: Fotoğraf başarıyla kaydedildi")
+                        }
+                        
                         try {
                             // Çekilen fotoğrafı bitmap olarak yükle ve göster
                             val bitmap: Bitmap? = try {
-                                BitmapFactory.decodeFile(photoFile.absolutePath)
+                                // Daha güvenli bitmap yükleme
+                                val options = BitmapFactory.Options().apply {
+                                    inSampleSize = 2 // Bellek kullanımını azalt
+                                    inJustDecodeBounds = false
+                                }
+                                BitmapFactory.decodeFile(photoFile.absolutePath, options)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Fotoğraf dosyası bitmap'e dönüştürülemedi: ${e.message}")
                                 null
                             }
                             
-                            if (bitmap != null) {
+                            if (bitmap != null && !bitmap.isRecycled) {
                                 // Bitmap'i ImageView'a yerleştir
                                 binding.imagePreview.setImageBitmap(bitmap)
                                 binding.imagePreview.visibility = View.VISIBLE
@@ -174,108 +308,145 @@ class CameraActivity : AppCompatActivity() {
                                 Log.d(TAG, "Fotoğraf bitmap olarak yüklendi ve görüntülendi")
                             } else {
                                 // Bitmap oluşturulamadıysa da URI'yi göster
-                                binding.imagePreview.setImageURI(savedUri)
-                                binding.imagePreview.visibility = View.VISIBLE
-                                Log.d(TAG, "Bitmap oluşturulamadı, URI doğrudan gösterildi")
+                                try {
+                                    binding.imagePreview.setImageURI(savedUri)
+                                    binding.imagePreview.visibility = View.VISIBLE
+                                    Log.d(TAG, "Bitmap oluşturulamadı, URI doğrudan gösterildi")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "URI gösterimi de başarısız: ${e.message}")
+                                    Toast.makeText(baseContext, "Fotoğraf görüntülenemedi", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Fotoğraf gösterimi sırasında hata: ${e.message}", e)
-                            // Yine de URI'yi göster
-                            binding.imagePreview.setImageURI(savedUri)
-                            binding.imagePreview.visibility = View.VISIBLE
+                            // Yine de URI'yi göstermeyi dene
+                            try {
+                                binding.imagePreview.setImageURI(savedUri)
+                                binding.imagePreview.visibility = View.VISIBLE
+                            } catch (uriException: Exception) {
+                                Log.e(TAG, "URI gösterimi de başarısız: ${uriException.message}")
+                            }
                         }
                         
-                        // Kamera kontrolleri yerine yükleme kontrollerini göster
-                        binding.layoutCameraControls.visibility = View.GONE
-                        binding.layoutUploadControls.visibility = View.VISIBLE
-                        
-                        // EMÜLATÖR TEST MODU - Otomatik olarak yükle
-                        // Emülatörde test için butonu otomatik olarak tetikle
-                        Log.d(TAG, "EMÜLATÖR TEST MODU: Otomatik yükleme aktif")
-                        Toast.makeText(baseContext, "TEST MODU: Otomatik olarak görev kabul ediliyor", Toast.LENGTH_LONG).show()
-                        
-                        runOnUiThread {
-                            // Fotoğraf analizini atlayarak direkt başarı göster
-                            showTaskSuccessAndUpload(savedUri)
-                            Log.d(TAG, "Fotoğraf analizi atlandı, direkt başarılı kabul edildi")
-                        }
-                        
-                        // Normal yükle butonunu yine de konfigüre et
-                        binding.buttonUpload.setOnClickListener {
-                            // Analiz durumu metnini göster
-                            binding.textAnalysisStatus.visibility = View.VISIBLE
-                            binding.buttonUpload.isEnabled = false
-                            binding.buttonRetake.isEnabled = false
-                            
-                            // Analizi atlayarak direkt başarılı kabul et
-                            showTaskSuccessAndUpload(savedUri)
-                        }
-                        
-                        // Tekrar çek butonunu ayarla
-                        binding.buttonRetake.setOnClickListener {
-                            // Kamera kontrollerini tekrar göster
-                            binding.layoutCameraControls.visibility = View.VISIBLE
-                            binding.layoutUploadControls.visibility = View.GONE
-                            binding.imagePreview.visibility = View.GONE
-                        }
+                        processPhotoTaken(savedUri)
                     }
                 })
             Log.d(TAG, "takePicture çağrısı yapıldı")
             
-            // EMÜLATÖR KURTARMA MEKANİZMASI: 
-            // Callback çalışmadığında devreye girer (5 saniye bekledikten sonra)
-            Handler(Looper.getMainLooper()).postDelayed({
-                // Hala işlem devam etmediyse
-                if (binding.imagePreview.visibility != View.VISIBLE) {
-                    Log.d(TAG, "KURTARMA MEKANİZMASI: Callback tetiklenmedi, manuel işlemi başlatıyorum")
-                    
-                    try {
-                        // Bitmap olarak yüklemeyi dene
-                        val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
-                        if (bitmap != null) {
-                            binding.imagePreview.setImageBitmap(bitmap)
-                            capturedBitmap = bitmap  // capturedBitmap'e kaydet
-                            Log.d(TAG, "KURTARMA: Fotoğraf bitmap olarak yüklendi")
-                        } else {
-                            // URI olarak göster
-                            val savedUri = Uri.fromFile(photoFile)
-                            binding.imagePreview.setImageURI(savedUri)
-                            Log.d(TAG, "KURTARMA: Bitmap oluşturulamadı, URI kullanıldı")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "KURTARMA: Bitmap oluşturulamadı: ${e.message}")
-                        // URI olarak göster
-                        val savedUri = Uri.fromFile(photoFile)
-                        binding.imagePreview.setImageURI(savedUri)
-                    }
-                    
-                    binding.imagePreview.visibility = View.VISIBLE
-                    
-                    // Kamera kontrolleri yerine yükleme kontrollerini göster
-                    binding.layoutCameraControls.visibility = View.GONE
-                    binding.layoutUploadControls.visibility = View.VISIBLE
-                    
-                    // Test modunu aktifleştir
-                    Log.d(TAG, "KURTARMA TEST MODU: Otomatik yükleme aktif")
-                    Toast.makeText(baseContext, "TEST MODU: Otomatik olarak görev kabul ediliyor", Toast.LENGTH_LONG).show()
-                    
-                    // Hemen showTaskSuccessAndUpload'ı çağır için Uri oluştur
-                    val savedUri = Uri.fromFile(photoFile)
-                    
-                    runOnUiThread {
-                        // Hemen showTaskSuccessAndUpload'ı çağır
-                        showTaskSuccessAndUpload(savedUri)
-                        Log.d(TAG, "KURTARMA: Otomatik görev doğrulama başlatıldı")
-                    }
-                }
-            }, 5000) // 5 saniye bekle
         } catch (e: Exception) {
-            Log.e(TAG, "Fotoğraf çekilirken hata oluştu: ${e.message}", e)
-            Toast.makeText(baseContext, "Fotoğraf çekilirken hata: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "takePicture sırasında hata oluştu: ${e.message}", e)
+            
+            // Emülatörde hata varsa fallback kullan
+            if (isEmulator()) {
+                Log.d(TAG, "EMÜLATÖR MODU: Hata oluştu, fallback fotoğraf oluşturuluyor")
+                createFallbackPhoto()
+            } else {
+                Toast.makeText(baseContext, "Fotoğraf çekilirken hata: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
     
-    // Analiz işlemleri tamamen kaldırıldı. Tüm fotoğraflar doğrudan kabul ediliyor.
+    private fun createFallbackPhoto() {
+        Log.d(TAG, "🎨 createFallbackPhoto() başlatıldı")
+        
+        // Activity lifecycle kontrolü
+        if (isDestroyed || isFinishing) {
+            Log.w(TAG, "⚠️ Activity destroyed/finishing, fallback photo işlemi iptal edildi")
+            return
+        }
+        
+        // Çoklu çağrı kontrolü
+        if (isFallbackProcessing) {
+            Log.w(TAG, "⚠️ Fallback işlemi zaten devam ediyor, yinelenen çağrı atlanıyor")
+            return
+        }
+        
+        isFallbackProcessing = true
+        Log.d(TAG, "🖼️ Fallback bitmap oluşturuluyor...")
+        
+        try {
+            // Varsayılan bitmap oluştur
+            val bitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.drawColor(Color.LTGRAY)
+            
+            val paint = android.graphics.Paint().apply {
+                color = Color.BLACK
+                textSize = 24f
+                isAntiAlias = true
+            }
+            
+            canvas.drawText("EMÜLATÖR FOTOĞRAFİ", 50f, 100f, paint)
+            canvas.drawText(taskTitle ?: "Görev", 50f, 150f, paint)
+            canvas.drawText("${System.currentTimeMillis()}", 50f, 200f, paint)
+            
+            // Bitmap'i dosyaya kaydet
+            val photoFile = File(
+                outputDirectory,
+                "fallback_${SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())}.jpg"
+            )
+            
+            val outputStream = photoFile.outputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            outputStream.close()
+            
+            val savedUri = Uri.fromFile(photoFile)
+            
+            // UI'yi güncelle
+            runOnUiThread {
+                binding.imagePreview.setImageBitmap(bitmap)
+                binding.imagePreview.visibility = View.VISIBLE
+                capturedBitmap = bitmap
+                
+                Toast.makeText(this, "Emülatör: Test fotoğrafı oluşturuldu", Toast.LENGTH_SHORT).show()
+                
+                processPhotoTaken(savedUri)
+                
+                // İşlem tamamlandı
+                isFallbackProcessing = false
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback fotoğraf oluşturulamadı: ${e.message}")
+            Toast.makeText(this, "Fotoğraf oluşturulamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+            isFallbackProcessing = false
+        }
+    }
+    
+    private fun processPhotoTaken(savedUri: Uri) {
+        // Kamera kontrolleri yerine yükleme kontrollerini göster
+        binding.layoutCameraControls.visibility = View.GONE
+        binding.layoutUploadControls.visibility = View.VISIBLE
+        
+        // EMÜLATÖR TEST MODU - Otomatik olarak yükle
+        Log.d(TAG, "TEST MODU: Otomatik yükleme aktif")
+        Toast.makeText(baseContext, "TEST MODU: Otomatik olarak görev kabul ediliyor", Toast.LENGTH_LONG).show()
+        
+        runOnUiThread {
+            // Fotoğraf analizini atlayarak direkt başarı göster
+            showTaskSuccessAndUpload(savedUri)
+            Log.d(TAG, "Fotoğraf analizi atlandı, direkt başarılı kabul edildi")
+        }
+        
+        // Normal yükle butonunu yine de konfigüre et
+        binding.buttonUpload.setOnClickListener {
+            // Analiz durumu metnini göster
+            binding.textAnalysisStatus.visibility = View.VISIBLE
+            binding.buttonUpload.isEnabled = false
+            binding.buttonRetake.isEnabled = false
+            
+            // Analizi atlayarak direkt başarılı kabul et
+            showTaskSuccessAndUpload(savedUri)
+        }
+        
+        // Tekrar çek butonunu ayarla
+        binding.buttonRetake.setOnClickListener {
+            // Kamera kontrollerini tekrar göster
+            binding.layoutCameraControls.visibility = View.VISIBLE
+            binding.layoutUploadControls.visibility = View.GONE
+            binding.imagePreview.visibility = View.GONE
+        }
+    }
     
     private fun showTaskSuccessAndUpload(savedUri: Uri) {
         Log.d(TAG, "showTaskSuccessAndUpload başlatıldı - URI: $savedUri")
@@ -296,8 +467,6 @@ class CameraActivity : AppCompatActivity() {
             binding.layoutCameraControls.visibility = View.VISIBLE
             binding.layoutUploadControls.visibility = View.GONE
             binding.imagePreview.visibility = View.GONE
-            binding.textAnalysisStatus.visibility = View.GONE
-            binding.taskCompletionIcon.visibility = View.GONE
         }
         
         // Analiz durumunu göster (analiz yapılmadı ama sonuç başarılı kabul edildi)
@@ -350,104 +519,93 @@ class CameraActivity : AppCompatActivity() {
     }
     
     private fun uploadPhotoToFirebase(imageUri: Uri) {
-        Log.d(TAG, "uploadPhotoToFirebase başlatıldı")
+        Log.d(TAG, "uploadPhotoToFirebase başlatıldı - URI: $imageUri")
+        
+        // Yüklenme durumunu göster
+        binding.progressUpload.visibility = View.VISIBLE
+        binding.buttonUpload.isEnabled = false
+        binding.buttonRetake.isEnabled = false
         
         try {
-            // Kullanıcı kontrolü
+            // Firebase Auth kontrol
             val userId = auth.currentUser?.uid
             if (userId == null) {
                 Log.e(TAG, "Kullanıcı oturum açmamış")
-                Toast.makeText(this, "Kullanıcı oturum açmamış", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Lütfen giriş yapın", Toast.LENGTH_SHORT).show()
                 return
             }
-            
-            // Görev kontrolü
-            if (taskId == null) {
-                Log.e(TAG, "Görev bilgisi bulunamadı")
-                Toast.makeText(this, "Görev bilgisi bulunamadı", Toast.LENGTH_SHORT).show()
-                return
-            }
-            
-            // Yükleme durumunu göster
-            binding.progressUpload.visibility = View.VISIBLE
-            binding.buttonUpload.isEnabled = false
-            binding.buttonRetake.isEnabled = false
-            
-            Log.d(TAG, "Yükleme durumu gösteriliyor, userId: $userId, taskId: $taskId")
             
             // Benzersiz dosya adı oluştur
-            val fileName = "${UUID.randomUUID()}.jpg"
+            val fileName = "task_${taskId}_${System.currentTimeMillis()}.jpg"
+            
+            // Bitmap oluşturma - güvenli yöntem
+            var bitmap: Bitmap? = null
             
             try {
-                // Önce capturedBitmap'i kontrol et (takePhoto metodunda kaydettiğimiz bitmap)
-                var bitmap = capturedBitmap
-                
-                // Eğer capturedBitmap null ise alternatif yolları dene
-                if (bitmap == null) {
-                    Log.d(TAG, "capturedBitmap null, alternatif yöntemleri deneniyor")
-                    
-                    // Önizleme görüntüsünden bitmap elde etmeyi dene
+                // Önce capturedBitmap'i kontrol et
+                if (capturedBitmap != null && !capturedBitmap!!.isRecycled) {
+                    bitmap = capturedBitmap
+                    Log.d(TAG, "CapturedBitmap kullanılıyor")
+                } else {
+                    // URI'den bitmap oluşturmayı dene
                     bitmap = try {
-                        (binding.imagePreview.drawable as? BitmapDrawable)?.bitmap
+                        val inputStream = contentResolver.openInputStream(imageUri)
+                        val options = BitmapFactory.Options().apply {
+                            inSampleSize = 2 // Bellek kullanımını azalt
+                            inJustDecodeBounds = false
+                        }
+                        BitmapFactory.decodeStream(inputStream, null, options)
                     } catch (e: Exception) {
-                        Log.e(TAG, "ImagePreview'dan bitmap alınamadı: ${e.message}")
+                        Log.e(TAG, "URI'den bitmap oluşturulamadı: ${e.message}")
                         null
                     }
-                    
-                    // Hala null ise, URI yöntemlerini dene
-                    if (bitmap == null) {
-                        bitmap = try {
-                            MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "ContentResolver ile bitmap oluşturulamadı: ${e.message}")
-                            
-                            try {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                                    val source = ImageDecoder.createSource(contentResolver, imageUri)
-                                    ImageDecoder.decodeBitmap(source)
-                                } else {
-                                    null
-                                }
-                            } catch (e2: Exception) {
-                                Log.e(TAG, "Alternatif yöntemle de bitmap oluşturulamadı: ${e2.message}")
-                                null
-                            }
-                        }
-                    }
-                } else {
-                    Log.d(TAG, "capturedBitmap kullanılıyor")
                 }
                 
-                // Bitmap hala null ise boş bir bitmap oluştur
-                if (bitmap == null) {
-                    Log.e(TAG, "Bitmap oluşturulamadı, boş bitmap kullanılacak")
-                    // Boş bir bitmap oluştur - 320x240 çözünürlüğünde
-                    bitmap = Bitmap.createBitmap(320, 240, Bitmap.Config.ARGB_8888)
+                // Bitmap hala null ise varsayılan oluştur
+                if (bitmap == null || bitmap.isRecycled) {
+                    Log.w(TAG, "Bitmap oluşturulamadı, varsayılan bitmap oluşturuluyor")
+                    // Varsayılan bitmap oluştur - 400x300 çözünürlüğünde
+                    bitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
                     
-                    // Bitmap'in üzerine basit bir metin çiz
+                    // Bitmap'in üzerine görev bilgisi çiz
                     val canvas = android.graphics.Canvas(bitmap)
                     canvas.drawColor(Color.WHITE)
+                    
                     val paint = android.graphics.Paint().apply {
                         color = Color.BLACK
-                        textSize = 30f
+                        textSize = 24f
+                        isAntiAlias = true
                     }
-                    canvas.drawText("Görev Fotoğrafı", 20f, 120f, paint)
                     
-                    Toast.makeText(this, "Orijinal fotoğraf yüklenemedi, test fotoğrafı kullanılıyor", Toast.LENGTH_SHORT).show()
+                    canvas.drawText("Görev Fotoğrafı", 50f, 100f, paint)
+                    canvas.drawText(taskTitle ?: "Görev", 50f, 150f, paint)
+                    canvas.drawText("${System.currentTimeMillis()}", 50f, 200f, paint)
+                    
+                    Toast.makeText(this, "Varsayılan fotoğraf kullanılıyor", Toast.LENGTH_SHORT).show()
                 }
                 
-                // Bitmap'i sıkıştır
+                // Bitmap'i byte array'e dönüştür
                 val baos = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                val compressionQuality = 75 // Kalite ve boyut dengesi
+                bitmap.compress(Bitmap.CompressFormat.JPEG, compressionQuality, baos)
                 val imageData = baos.toByteArray()
+                
+                Log.d(TAG, "Bitmap işlendi, boyut: ${imageData.size} bytes")
                 
                 // Storage referansı oluştur
                 val storageRef = storage.reference.child("task_photos/$fileName")
                 
-                Log.d(TAG, "Firebase Storage'a yükleme başlatılıyor: $fileName (byte array kullanılarak)")
+                Log.d(TAG, "Firebase Storage'a yükleme başlatılıyor: $fileName")
                 
-                // Firebase Storage'a doğrudan byte array yükle
-                storageRef.putBytes(imageData)
+                // Metadata oluştur
+                val metadata = StorageMetadata.Builder()
+                    .setContentType("image/jpeg")
+                    .setCustomMetadata("taskId", taskId ?: "unknown")
+                    .setCustomMetadata("userId", userId)
+                    .build()
+                
+                // Firebase Storage'a byte array yükle
+                storageRef.putBytes(imageData, metadata)
                     .continueWithTask { task ->
                         if (!task.isSuccessful) {
                             Log.e(TAG, "Storage yükleme hatası: ${task.exception?.message}")
@@ -458,80 +616,87 @@ class CameraActivity : AppCompatActivity() {
                     }
                     .addOnSuccessListener { downloadUri ->
                         Log.d(TAG, "Download URL alındı: $downloadUri")
+                        
                         // Firestore'a fotoğraf bilgilerini kaydet
                         val photoData = hashMapOf(
                             "userId" to userId,
-                            "taskId" to taskId,
-                            "taskName" to taskTitle,
+                            "taskId" to (taskId ?: "unknown"),
+                            "taskName" to (taskTitle ?: "Görev"),
                             "photoUrl" to downloadUri.toString(),
                             "timestamp" to System.currentTimeMillis(),
-                            "isPublic" to true
+                            "isPublic" to true,
+                            "isApproved" to true // Otomatik onaylı
                         )
                         
-                        Log.d(TAG, "Firestore'a veri yazılıyor: $photoData")
+                        Log.d(TAG, "Firestore'a veri yazılıyor: user_photos collection")
                         
                         firestore.collection("user_photos")
                             .add(photoData)
                             .addOnSuccessListener { documentReference ->
                                 Log.d(TAG, "Fotoğraf Firestore'a kaydedildi: ${documentReference.id}")
                                 
-                                // Görev ilerleme durumunu ve puan güncelle
+                                // Görev ilerleme durumunu güncelle
                                 updateTaskProgressWithFirebase(userId)
                             }
                             .addOnFailureListener { e ->
+                                Log.e(TAG, "Fotoğraf Firestore'a kaydedilemedi: ${e.message}", e)
+                                
+                                // UI'yi geri yükle
                                 binding.buttonUpload.isEnabled = true
                                 binding.buttonRetake.isEnabled = true
                                 binding.progressUpload.visibility = View.GONE
                                 
-                                Log.e(TAG, "Fotoğraf Firestore'a kaydedilemedi: ${e.message}", e)
-                                Log.e(TAG, "Detaylı Firestore hatası: ${e.toString()}")
-                                Toast.makeText(this, "Firestore hatası: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this, "Firestore kayıt hatası, ancak görev ilerletiliyor", Toast.LENGTH_SHORT).show()
                                 
                                 // Hata durumunda bile görevi ilerlet
                                 updateTaskProgressWithFirebase(userId)
                             }
                     }
                     .addOnFailureListener { e ->
+                        Log.e(TAG, "Fotoğraf Storage'a yüklenemedi: ${e.message}", e)
+                        
+                        // UI'yi geri yükle
                         binding.buttonUpload.isEnabled = true
                         binding.buttonRetake.isEnabled = true
                         binding.progressUpload.visibility = View.GONE
                         
-                        Log.e(TAG, "Fotoğraf yüklenemedi: ${e.message}", e)
-                        Log.e(TAG, "Detaylı hata: ${e.toString()}")
-                        Toast.makeText(this, "Fotoğraf yüklenemedi: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Yükleme hatası, ancak görev ilerletiliyor", Toast.LENGTH_SHORT).show()
                         
                         // Hata durumunda bile görevi ilerlet
                         updateTaskProgressWithFirebase(userId)
                     }
-            } catch (e: Exception) {
-                Log.e(TAG, "Bitmap işlemi sırasında hata: ${e.message}", e)
+                    
+            } catch (bitmapException: Exception) {
+                Log.e(TAG, "Bitmap işlemi sırasında kritik hata: ${bitmapException.message}", bitmapException)
                 
-                // Butonları geri etkinleştir
+                // UI'yi geri yükle
                 binding.buttonUpload.isEnabled = true
                 binding.buttonRetake.isEnabled = true
                 binding.progressUpload.visibility = View.GONE
-                Toast.makeText(this, "Fotoğraf hazırlanamadı: ${e.message}", Toast.LENGTH_SHORT).show()
                 
-                // Hata ayrıntılarını logla
-                Log.e(TAG, "Bitmap hatası detayı: ${e.stackTraceToString()}")
+                Toast.makeText(this, "Fotoğraf işlenemedi, ancak görev ilerletiliyor", Toast.LENGTH_SHORT).show()
                 
-                // Fotoğraf yüklenemese bile görevi ilerlet
+                // Kritik hata durumunda bile görevi ilerlet
                 updateTaskProgressWithFirebase(userId)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Upload işlemi sırasında hata: ${e.message}")
-            Log.e(TAG, "Detaylı genel hata: ${e.toString()}")
             
-            // Butonları geri etkinleştir
+        } catch (generalException: Exception) {
+            Log.e(TAG, "Upload işlemi sırasında genel hata: ${generalException.message}", generalException)
+            
+            // UI'yi geri yükle
             binding.buttonUpload.isEnabled = true
             binding.buttonRetake.isEnabled = true
             binding.progressUpload.visibility = View.GONE
-            Toast.makeText(this, "Bir hata oluştu: Lütfen tekrar deneyin", Toast.LENGTH_SHORT).show()
+            
+            Toast.makeText(this, "Genel hata, ana ekrana dönülüyor", Toast.LENGTH_SHORT).show()
             
             // En son çare: görevi yine de ilerlet
             val userId = auth.currentUser?.uid
             if (userId != null) {
                 updateTaskProgressWithFirebase(userId)
+            } else {
+                // Kullanıcı yoksa bile aktiviteyi kapat
+                finish()
             }
         }
     }
@@ -565,33 +730,54 @@ class CameraActivity : AppCompatActivity() {
                 Log.e(TAG, "Result set edilemedi: ${e.message}")
             }
             
-            // Görev tamamlandıysa puan ekle ve aktiviteyi kapat
+            // Görev tamamlandıysa TaskCompletionActivity'yi başlat
             if (newCompletedCount >= taskTotalCount) {
-                Log.d(TAG, "Görev tamamlandı! Puan ekleniyor ve aktivite kapatılıyor.")
+                Log.d(TAG, "Görev tamamlandı! TaskCompletionActivity başlatılıyor.")
                 
                 // Görevi tamamlanmış olarak işaretle
                 updateTaskCompletionStatus(id)
                 
-                // Başarı mesajı
-                Toast.makeText(this, "Görev tamamlandı! +100 puan kazandınız!", 
-                    Toast.LENGTH_LONG).show()
+                // Çekilen fotoğrafın URI'sini al
+                val photoUri = capturedBitmap?.let { bitmap ->
+                    // Bitmap'i geçici bir dosyaya kaydet ve URI'sini al
+                    saveImageToTempFile(bitmap)
+                } ?: "default_photo_uri"
                 
-                // Kısa bir gecikme ile bitir
-                Handler(Looper.getMainLooper()).postDelayed({
-                    finish()
-                }, 1500)
+                // TaskCompletionActivity'yi başlat
+                val intent = Intent(this, TaskCompletionActivity::class.java).apply {
+                    putExtra("PHOTO_URI", photoUri)
+                    putExtra("TASK_TITLE", taskTitle)
+                    putExtra("TASK_POINTS", 100) // Varsayılan puan
+                    putExtra("TASK_COMPLETED", true)
+                    putExtra("TASK_ID", id)
+                    putExtra("TASK_TOTAL_COUNT", taskTotalCount)
+                    putExtra("TASK_CURRENT_COUNT", newCompletedCount)
+                }
+                startActivity(intent)
+                finish()
             } else {
-                // Başarılı mesajı göster
-                Log.d(TAG, "Fotoğraf yüklendi! Kamera yeniden başlatılıyor.")
-                Toast.makeText(this, "Fotoğraf yüklendi! Devam edebilirsiniz.", Toast.LENGTH_SHORT).show()
+                // Görev henüz tamamlanmadı ama fotoğraf çekildi
+                Log.d(TAG, "Fotoğraf yüklendi! Görev devam ediyor: $newCompletedCount/$taskTotalCount")
                 
-                // Kamera kontrollerini tekrar göster
-                binding.layoutCameraControls.visibility = View.VISIBLE
-                binding.layoutUploadControls.visibility = View.GONE
-                binding.imagePreview.visibility = View.GONE
-                binding.progressUpload.visibility = View.GONE
-                binding.textAnalysisStatus.visibility = View.GONE
-                binding.taskCompletionIcon.visibility = View.GONE
+                // Çekilen fotoğrafın URI'sini al
+                val photoUri = capturedBitmap?.let { bitmap ->
+                    // Bitmap'i geçici bir dosyaya kaydet ve URI'sini al
+                    saveImageToTempFile(bitmap)
+                } ?: "default_photo_uri"
+                
+                // TaskCompletionActivity'yi başlat (görev devam ediyor)
+                val intent = Intent(this, TaskCompletionActivity::class.java).apply {
+                    putExtra("PHOTO_URI", photoUri)
+                    putExtra("TASK_TITLE", taskTitle)
+                    putExtra("TASK_POINTS", 0) // Henüz puan kazanılmadı
+                    putExtra("TASK_COMPLETED", false)
+                    putExtra("TASK_PROGRESS", "$newCompletedCount/$taskTotalCount")
+                    putExtra("TASK_ID", id)
+                    putExtra("TASK_TOTAL_COUNT", taskTotalCount)
+                    putExtra("TASK_CURRENT_COUNT", newCompletedCount)
+                }
+                startActivity(intent)
+                finish()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Görev ilerleme güncellemesinde hata: ${e.message}")
@@ -799,11 +985,27 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        Log.d(TAG, "📹 startCamera() başlatıldı")
+        
+        // Activity lifecycle kontrolü
+        if (isDestroyed || isFinishing) {
+            Log.w(TAG, "⚠️ Activity destroyed/finishing, kamera başlatılmıyor")
+            return
+        }
+        
+        Log.d(TAG, "🎯 CameraProvider instance alınıyor...")
+        
         try {
             Log.d(TAG, "Kamera başlatılıyor...")
             val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
             cameraProviderFuture.addListener({
+                // Callback sırasında tekrar lifecycle kontrolü
+                if (isDestroyed || isFinishing) {
+                    Log.w(TAG, "Callback sırasında activity destroy edilmiş, kamera bağlanmayacak")
+                    return@addListener
+                }
+                
                 try {
                     // Used to bind the lifecycle of cameras to the lifecycle owner
                     val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
@@ -831,24 +1033,81 @@ class CameraActivity : AppCompatActivity() {
                         cameraProvider.unbindAll()
                         Log.d(TAG, "Kamera use cases unbind edildi")
 
+                        // Final lifecycle check before binding
+                        if (isDestroyed || isFinishing) {
+                            Log.w(TAG, "Binding öncesi activity destroy edilmiş")
+                            return@addListener
+                        }
+
                         // Bind use cases to camera
-                        cameraProvider.bindToLifecycle(
+                        val camera = cameraProvider.bindToLifecycle(
                             this, cameraSelector, preview, imageCapture)
-                        Log.d(TAG, "Kamera lifecycle'a bağlandı")
+                        Log.d(TAG, "Kamera lifecycle'a başarıyla bağlandı")
+                        
+                        // Emülatör kontrolü
+                        if (isEmulator()) {
+                            Log.d(TAG, "EMÜLATÖR MODU: Kamera başlatıldı")
+                        }
 
                     } catch(exc: Exception) {
                         Log.e(TAG, "Use case binding failed", exc)
-                        Toast.makeText(this, "Kamera başlatılamadı: ${exc.message}", Toast.LENGTH_SHORT).show()
+                        handleCameraError(exc)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Kamera provider alınırken hata: ${e.message}", e)
-                    Toast.makeText(this, "Kamera başlatılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+                    handleCameraError(e)
                 }
             }, ContextCompat.getMainExecutor(this))
         } catch (e: Exception) {
             Log.e(TAG, "Kamera başlatılırken hata: ${e.message}", e)
-            Toast.makeText(this, "Kamera başlatılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+            handleCameraError(e)
         }
+    }
+    
+    private fun handleCameraError(exception: Exception) {
+        val errorMessage = when {
+            exception.message?.contains("destroyed lifecycle") == true -> {
+                "Kamera başlatılamadı: Uygulama yaşam döngüsü sorunu"
+            }
+            exception.message?.contains("Permission") == true -> {
+                "Kamera izni sorunu. Lütfen uygulamayı yeniden başlatın."
+            }
+            isEmulator() -> {
+                "Emülatör kamera sorunu. Gerçek cihazda test edin veya AVD kamera ayarlarını kontrol edin."
+            }
+            else -> {
+                "Kamera başlatılamadı: ${exception.message}"
+            }
+        }
+        
+        Log.e(TAG, "Kamera hatası: $errorMessage", exception)
+        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+        
+        // Hata durumunda aktiviteyi kapat
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isDestroyed && !isFinishing) {
+                finish()
+            }
+        }, 2000)
+    }
+    
+    private fun isEmulator(): Boolean {
+        return (android.os.Build.BRAND.startsWith("generic") && android.os.Build.DEVICE.startsWith("generic"))
+                || android.os.Build.FINGERPRINT.startsWith("generic")
+                || android.os.Build.FINGERPRINT.startsWith("unknown")
+                || android.os.Build.HARDWARE.contains("goldfish")
+                || android.os.Build.HARDWARE.contains("ranchu")
+                || android.os.Build.MODEL.contains("google_sdk")
+                || android.os.Build.MODEL.contains("Emulator")
+                || android.os.Build.MODEL.contains("Android SDK built for x86")
+                || android.os.Build.MANUFACTURER.contains("Genymotion")
+                || android.os.Build.PRODUCT.contains("sdk_google")
+                || android.os.Build.PRODUCT.contains("google_sdk")
+                || android.os.Build.PRODUCT.contains("sdk")
+                || android.os.Build.PRODUCT.contains("sdk_x86")
+                || android.os.Build.PRODUCT.contains("vbox86p")
+                || android.os.Build.PRODUCT.contains("emulator")
+                || android.os.Build.PRODUCT.contains("simulator")
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -875,13 +1134,40 @@ class CameraActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
             if (allPermissionsGranted()) {
+                Log.d(TAG, "Kamera izinleri verildi")
                 startCamera()
             } else {
-                Toast.makeText(this,
-                    "Kamera kullanımı için gerekli izinler verilmedi.",
-                    Toast.LENGTH_SHORT).show()
-                finish()
+                Log.e(TAG, "Kamera izinleri reddedildi")
+                
+                if (isEmulator()) {
+                    Toast.makeText(this,
+                        "Emülatör: Kamera izni reddedildi. Test modu etkinleştiriliyor.",
+                        Toast.LENGTH_LONG).show()
+                    
+                    // Emülatörde izin yoksa da test moduna geç
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        Log.d(TAG, "Emülatör test modu: İzin olmadan devam ediliyor")
+                    }, 1000)
+                } else {
+                    Toast.makeText(this,
+                        "Kamera kullanımı için gerekli izinler verilmedi.",
+                        Toast.LENGTH_SHORT).show()
+                    finish()
+                }
             }
+        }
+    }
+
+    private fun saveImageToTempFile(bitmap: Bitmap): String {
+        return try {
+            val tempFile = File(cacheDir, "temp_task_photo_${System.currentTimeMillis()}.jpg")
+            val outputStream = tempFile.outputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            outputStream.close()
+            tempFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Geçici dosya oluşturulamadı: ${e.message}")
+            ""
         }
     }
 

@@ -6,9 +6,11 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera.any" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-feature android:name="android.hardware.camera.any" />
 
     <application
         android:name=".MyApplication"
@@ -47,6 +49,11 @@
 
         <activity
             android:name=".CameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
+
+        <activity
+            android:name=".TaskCompletionActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
             

@@ -1,4 +1,4 @@
-# 🎯 DoDo Project v2
+# 🎯 DoDo Project
 
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://android.com)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-purple.svg)](https://kotlinlang.org)
@@ -70,17 +70,6 @@ DoDo Project v2, Gemini AI ile desteklenen günlük fotoğraf görevleri uygulam
 
 ---
 
-## 📱 Ekran Görüntüleri
-
-<div align="center">
-  <img src="screenshots/home_screen.png" width="200" alt="Ana Ekran">
-  <img src="screenshots/tasks_screen.png" width="200" alt="Görevler">
-  <img src="screenshots/camera_screen.png" width="200" alt="Kamera">
-  <img src="screenshots/profile_screen.png" width="200" alt="Profil">
-</div>
-
----
-
 ## 🛠️ Kurulum
 
 ### Gereksinimler
@@ -88,45 +77,6 @@ DoDo Project v2, Gemini AI ile desteklenen günlük fotoğraf görevleri uygulam
 - Android SDK API 26+
 - Kotlin 1.8.0+
 - Firebase projesi
-
-### Adımlar
-
-1. **Repository'yi klonlayın**
-   ```bash
-   git clone https://github.com/yourusername/dodoprojectv2.git
-   cd dodoprojectv2
-   ```
-
-2. **Firebase Kurulumu**
-   - [Firebase Console](https://console.firebase.google.com)'da yeni proje oluşturun
-   - Android uygulaması ekleyin
-   - `google-services.json` dosyasını `app/` klasörüne yerleştirin
-
-3. **API Keys Yapılandırması**
-   ```kotlin
-   // app/build.gradle.kts
-   buildConfigField("String", "GEMINI_API_KEY", "\"YOUR_GEMINI_API_KEY\"")
-   ```
-
-4. **Firestore Kuralları**
-   ```javascript
-   // firestore.rules
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /{document=**} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
-   ```
-
-5. **Uygulamayı Build Edin**
-   ```bash
-   ./gradlew assembleDebug
-   ```
-
----
 
 ## 🎮 Kullanım
 
@@ -174,70 +124,31 @@ app/
 
 ---
 
-## 🤝 Katkıda Bulunma
-
-Katkılarınızı memnuniyetle karşılıyoruz! 
-
-1. Fork edin
-2. Feature branch oluşturun (`git checkout -b feature/amazing-feature`)
-3. Değişikliklerinizi commit edin (`git commit -m 'Add amazing feature'`)
-4. Branch'inizi push edin (`git push origin feature/amazing-feature`)
-5. Pull Request oluşturun
-
-### 📋 Geliştirme Kuralları
-- Kotlin kod stiline uyun
-- Unit testler yazın
-- Commit mesajlarını açıklayıcı yapın
-- Documentation güncelleyin
-
----
-
-## 🐛 Bilinen Sorunlar
-
-- [ ] Düşük ışıkta nesne tanıma performansı
-- [ ] Bazı cihazlarda kamera açılış gecikmesi
-- [ ] Offline mod sınırlı fonksiyonalite
-
----
-
 ## 📋 Gelecek Özellikler
 
-- [ ] 🎥 Video görevleri
 - [ ] 👥 Arkadaş sistemi
 - [ ] 🏆 Başarım rozet sistemi
 - [ ] 📊 Detaylı istatistikler
 - [ ] 🌍 Konum bazlı görevler
-- [ ] 🎨 Fotoğraf editör
-- [ ] 📤 Sosyal medya paylaşımı
-
----
-
-## 📄 Lisans
-
-Bu proje MIT lisansı altında lisanslanmıştır. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
 
 ---
 
 ## 👨‍💻 Geliştirici
 
-**[Adınız]**
-- 📧 Email: [email@example.com]
-- 🐦 Twitter: [@twitter_handle]
-- 💼 LinkedIn: [linkedin.com/in/profile]
+**Tan Aytok**
+- 📧 Email: tanaytok@hotmail.com
+- 💼 LinkedIn: https://www.linkedin.com/in/tanaytok/
 
----
+**Yasin Baran Kaplan**
+- 📧 Email: kaplanyasin2001@gmail.com
+- 💼 LinkedIn: https://www.linkedin.com/in/tanaytok/](https://www.linkedin.com/in/yasin-baran-kaplan/
 
-## 🙏 Teşekkürler
-
-- 🤖 **Google Gemini AI** - Akıllı görev üretimi için
-- 🔥 **Firebase** - Backend hizmetleri için
-- 📱 **Android Team** - Harika development araçları için
-- 🎨 **Material Design** - Güzel UI component'lar için
+**Atahan Bozok Özmutlu**
+- 📧 Email: bozok317@gmail.com
+- 💼 LinkedIn: https://www.linkedin.com/in/atahanbozoközmutlu/
 
 ---
 
 <div align="center">
   <h3>⭐ Beğendiyseniz yıldızlamayı unutmayın! ⭐</h3>
-  
-  **Made with ❤️ by Turkish Developers**
 </div>

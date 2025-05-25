@@ -9,6 +9,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.dodoprojectv2.utils.ThemeManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -27,6 +28,9 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Kaydedilmiş tema tercihini uygula
+        ThemeManager.applySavedTheme(this)
+        
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_register)
         
@@ -185,6 +189,7 @@ class RegisterActivity : AppCompatActivity() {
                             "points" to 0, // Initial points
                             "followers" to 0, // Initial followers count
                             "following" to 0, // Initial following count
+                            "themePreference" to false, // Varsayılan light theme
                             "createdAt" to System.currentTimeMillis()
                         )
                         
@@ -195,11 +200,18 @@ class RegisterActivity : AppCompatActivity() {
                                 progressBar.visibility = View.GONE
                                 android.util.Log.d("RegisterActivity", "Firestore kullanıcı kaydı başarılı")
                                 Toast.makeText(baseContext, "Kayıt başarılı!", Toast.LENGTH_SHORT).show()
-                                // Navigate to MainActivity
-                                val intent = Intent(this, MainActivity::class.java)
-                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                startActivity(intent)
-                                finish()
+                                
+                                // Yeni kullanıcı için varsayılan tema ayarla ve MainActivity'ye git
+                                ThemeManager.loadThemeFromFirebase(this@RegisterActivity) { isDarkMode ->
+                                    // Tema tercihini uygula
+                                    ThemeManager.applyTheme(this@RegisterActivity, isDarkMode)
+                                    
+                                    // Navigate to MainActivity
+                                    val intent = Intent(this@RegisterActivity, MainActivity::class.java)
+                                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                    startActivity(intent)
+                                    finish()
+                                }
                             }
                             .addOnFailureListener { e ->
                                 progressBar.visibility = View.GONE

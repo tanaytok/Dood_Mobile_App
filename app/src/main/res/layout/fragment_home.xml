@@ -12,8 +12,9 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_margin="8dp"
-        app:cardCornerRadius="8dp"
+        app:cardCornerRadius="24dp"
         app:cardElevation="4dp"
+        app:cardBackgroundColor="?android:attr/colorBackground"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
@@ -34,6 +35,8 @@
                 android:maxLines="1"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textColorHint="?android:attr/textColorSecondary"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toStartOf="@+id/button_search"
                 app:layout_constraintStart_toStartOf="parent"
@@ -46,6 +49,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Ara"
                 android:src="@drawable/ic_search"
+                app:tint="?android:attr/textColorSecondary"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
@@ -62,6 +66,7 @@
         android:visibility="gone"
         app:cardCornerRadius="8dp"
         app:cardElevation="4dp"
+        app:cardBackgroundColor="?android:attr/colorBackground"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/card_view_search">
@@ -70,7 +75,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@android:color/white">
+            android:background="?android:attr/colorBackground">
 
             <TextView
                 android:id="@+id/text_search_results_title"
@@ -79,8 +84,9 @@
                 android:text="Arama Sonuçları"
                 android:textStyle="bold"
                 android:textSize="16sp"
+                android:textColor="?android:attr/textColorPrimary"
                 android:padding="12dp"
-                android:background="#F5F5F5" />
+                android:background="?android:attr/colorBackgroundFloating" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recycler_view_search_results"
@@ -95,6 +101,7 @@
                 android:layout_height="wrap_content"
                 android:text="Kullanıcı bulunamadı"
                 android:textSize="16sp"
+                android:textColor="?android:attr/textColorSecondary"
                 android:padding="16dp"
                 android:gravity="center"
                 android:visibility="gone" />

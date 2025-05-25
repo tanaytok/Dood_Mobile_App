@@ -4,6 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="?android:attr/colorBackground"
     android:padding="12dp">
 
     <ImageView
@@ -20,7 +21,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
-        android:textColor="@android:color/black"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="14sp"
         android:textStyle="bold"
         app:layout_constraintStart_toEndOf="@+id/image_user_profile"
@@ -33,7 +34,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
         android:layout_marginTop="4dp"
-        android:textColor="@android:color/black"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="14sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/image_user_profile"
@@ -44,12 +45,11 @@
         android:id="@+id/text_comment_date"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:textColor="@android:color/darker_gray"
+        android:layout_marginTop="4dp"
+        android:textColor="?android:attr/textColorSecondary"
         android:textSize="12sp"
-        app:layout_constraintBottom_toBottomOf="@+id/text_username"
-        app:layout_constraintStart_toEndOf="@+id/text_username"
-        app:layout_constraintTop_toTopOf="@+id/text_username"
-        tools:text="2 saat önce" />
+        app:layout_constraintStart_toStartOf="@+id/text_comment"
+        app:layout_constraintTop_toBottomOf="@+id/text_comment"
+        tools:text="5 dakika önce" />
 
 </androidx.constraintlayout.widget.ConstraintLayout> 

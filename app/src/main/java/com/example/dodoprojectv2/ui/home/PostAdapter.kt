@@ -1,8 +1,12 @@
 package com.example.dodoprojectv2.ui.home
 
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.text.format.DateFormat
 import android.util.Log
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
@@ -70,6 +74,7 @@ class PostAdapter(
         private val textDate: TextView = itemView.findViewById(R.id.text_date)
         private val textTaskName: TextView = itemView.findViewById(R.id.text_task_name)
         private val imagePost: ImageView = itemView.findViewById(R.id.image_post)
+        private val imageLikeAnimation: ImageView = itemView.findViewById(R.id.image_like_animation)
         private val buttonLike: ImageButton = itemView.findViewById(R.id.button_like)
         private val textLikeCount: TextView = itemView.findViewById(R.id.text_like_count)
         private val buttonComment: ImageButton = itemView.findViewById(R.id.button_comment)
@@ -112,6 +117,44 @@ class PostAdapter(
                 if (isLiked) R.drawable.ic_like_filled else R.drawable.ic_like_outline
             )
 
+            // Çift tıklama için GestureDetector oluştur
+            val gestureDetector = GestureDetector(itemView.context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    // Kalp animasyonunu göster
+                    showLikeAnimation()
+                    
+                    // Çift tıklama ile beğeni
+                    onLikeClicked(post)
+                    
+                    // Görsel geri bildirimi hemen göster
+                    val currentLiked = likedPostsMap[post.postId] ?: false
+                    val newLikedState = !currentLiked
+                    likedPostsMap[post.postId] = newLikedState
+                    
+                    buttonLike.setImageResource(
+                        if (newLikedState) R.drawable.ic_like_filled else R.drawable.ic_like_outline
+                    )
+                    
+                    val currentLikes = post.likesCount
+                    val newLikes = if (newLikedState) currentLikes + 1 else (currentLikes - 1).coerceAtLeast(0)
+                    textLikeCount.text = newLikes.toString()
+                    
+                    return true
+                }
+
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    // Tek tıklama ile gönderi detayı
+                    onPostClicked(post)
+                    return true
+                }
+            })
+
+            // Fotoğrafa çift tıklama dinleyicisi ekle
+            imagePost.setOnTouchListener { _, event ->
+                gestureDetector.onTouchEvent(event)
+                true
+            }
+
             // Tıklama olaylarını ayarla
             imageUserProfile.setOnClickListener {
                 try {
@@ -135,10 +178,6 @@ class PostAdapter(
                 } catch (e: Exception) {
                     Log.e("PostAdapter", "Kullanıcı profiline gitme hatası: ${e.message}", e)
                 }
-            }
-
-            imagePost.setOnClickListener {
-                onPostClicked(post)
             }
 
             buttonLike.setOnClickListener {
@@ -171,7 +210,71 @@ class PostAdapter(
                 onCommentsClicked(post)
             }
         }
+
+        private fun showLikeAnimation() {
+            // Animasyon başlamadan önce kalbi görünür yap
+            imageLikeAnimation.visibility = View.VISIBLE
+            
+            // Scale ve alpha animasyonları oluştur
+            val scaleXUp = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleX", 0.5f, 1.2f)
+            val scaleYUp = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleY", 0.5f, 1.2f)
+            val alphaUp = ObjectAnimator.ofFloat(imageLikeAnimation, "alpha", 0f, 1f)
+            
+            val scaleXDown = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleX", 1.2f, 1f)
+            val scaleYDown = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleY", 1.2f, 1f)
+            
+            val scaleXOut = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleX", 1f, 0.5f)
+            val scaleYOut = ObjectAnimator.ofFloat(imageLikeAnimation, "scaleY", 1f, 0.5f)
+            val alphaOut = ObjectAnimator.ofFloat(imageLikeAnimation, "alpha", 1f, 0f)
+            
+            // İlk animasyon seti (büyüme ve görünme)
+            val animatorSetUp = AnimatorSet().apply {
+                playTogether(scaleXUp, scaleYUp, alphaUp)
+                duration = 200
+            }
+            
+            // İkinci animasyon seti (normal boyuta dönme)
+            val animatorSetDown = AnimatorSet().apply {
+                playTogether(scaleXDown, scaleYDown)
+                duration = 100
+            }
+            
+            // Son animasyon seti (küçülme ve kaybolma)
+            val animatorSetOut = AnimatorSet().apply {
+                playTogether(scaleXOut, scaleYOut, alphaOut)
+                duration = 200
+                startDelay = 300 // Biraz bekle sonra kaybol
+            }
+            
+            // Tüm animasyonları sırayla çalıştır
+            val finalAnimatorSet = AnimatorSet().apply {
+                playSequentially(animatorSetUp, animatorSetDown, animatorSetOut)
+            }
+            
+            // Animasyon bitince kalbi gizle
+            finalAnimatorSet.doOnEnd {
+                imageLikeAnimation.visibility = View.INVISIBLE
+                // Değerleri sıfırla
+                imageLikeAnimation.alpha = 0f
+                imageLikeAnimation.scaleX = 0.5f
+                imageLikeAnimation.scaleY = 0.5f
+            }
+            
+            finalAnimatorSet.start()
+        }
     }
+}
+
+// AnimatorSet.doOnEnd extension function
+private fun AnimatorSet.doOnEnd(action: () -> Unit) {
+    addListener(object : android.animation.Animator.AnimatorListener {
+        override fun onAnimationStart(animation: android.animation.Animator) {}
+        override fun onAnimationEnd(animation: android.animation.Animator) {
+            action()
+        }
+        override fun onAnimationCancel(animation: android.animation.Animator) {}
+        override fun onAnimationRepeat(animation: android.animation.Animator) {}
+    })
 }
 
 data class PostModel(

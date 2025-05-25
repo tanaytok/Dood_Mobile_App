@@ -43,6 +43,8 @@ import com.example.dodoprojectv2.ui.home.LikeUserAdapter
 import com.example.dodoprojectv2.ui.home.LikeUserModel
 import androidx.navigation.Navigation
 import com.example.dodoprojectv2.ui.UserProfilePopup
+import com.example.dodoprojectv2.utils.ThemeManager
+import com.google.firebase.firestore.FieldValue
 
 class ProfileFragment : Fragment() {
 
@@ -535,26 +537,67 @@ class ProfileFragment : Fragment() {
 
     private fun showSettingsDialog() {
         try {
-            val options = arrayOf("Profil Düzenle", "Çıkış Yap")
+            val dialog = Dialog(requireContext())
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_settings)
             
-            val builder = androidx.appcompat.app.AlertDialog.Builder(requireContext())
-            builder.setTitle("Profil Ayarları")
-            builder.setItems(options) { dialog, which ->
-                when (which) {
-                    0 -> showEditProfileDialog() // Profil Düzenle
-                    1 -> {
-                        // Çıkış Yap
-                        try {
-                            val mainActivity = activity as MainActivity
-                            mainActivity.signOut()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Çıkış yapılırken hata: ${e.message}", e)
-                            Toast.makeText(context, "Çıkış yapılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
+            // Dialog genişliğini ayarla
+            dialog.window?.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            
+            // Dialog bileşenlerini bul
+            val switchDarkMode = dialog.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switch_dark_mode)
+            val layoutEditProfile = dialog.findViewById<View>(R.id.layout_edit_profile)
+            val layoutLogout = dialog.findViewById<View>(R.id.layout_logout)
+            val buttonClose = dialog.findViewById<Button>(R.id.button_close)
+            
+            // Mevcut karanlık mod durumunu ayarla
+            switchDarkMode.isChecked = ThemeManager.isDarkModeEnabled(requireContext())
+            
+            // Karanlık mod switch dinleyicisi
+            switchDarkMode.setOnCheckedChangeListener { _, isChecked ->
+                // Firebase entegrasyonlu tema değiştirme
+                ThemeManager.applyTheme(requireContext(), isChecked)
+                
+                // Temayı hemen uygula
+                activity?.recreate()
+            }
+            
+            // Profil düzenle tıklama olayı
+            layoutEditProfile.setOnClickListener {
+                dialog.dismiss()
+                showEditProfileDialog()
+            }
+            
+            // Çıkış yap tıklama olayı
+            layoutLogout.setOnClickListener {
+                dialog.dismiss()
+                
+                // Çıkış yap onay dialogu
+                val confirmBuilder = androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                confirmBuilder.setTitle("Çıkış Yap")
+                confirmBuilder.setMessage("Hesabınızdan çıkmak istediğinizden emin misiniz?")
+                confirmBuilder.setPositiveButton("Evet") { _, _ ->
+                    try {
+                        val mainActivity = activity as MainActivity
+                        mainActivity.signOut()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Çıkış yapılırken hata: ${e.message}", e)
+                        Toast.makeText(context, "Çıkış yapılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
+                confirmBuilder.setNegativeButton("İptal", null)
+                confirmBuilder.show()
             }
-            builder.show()
+            
+            // Kapat butonu tıklama olayı
+            buttonClose.setOnClickListener {
+                dialog.dismiss()
+            }
+            
+            dialog.show()
         } catch (e: Exception) {
             Log.e(TAG, "Ayarlar dialogu gösterilirken hata: ${e.message}", e)
         }

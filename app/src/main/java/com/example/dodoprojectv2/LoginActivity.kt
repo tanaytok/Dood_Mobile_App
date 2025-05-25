@@ -2,6 +2,7 @@ package com.example.dodoprojectv2
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -9,6 +10,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.dodoprojectv2.utils.ThemeManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -24,6 +26,9 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Kaydedilmiş tema tercihini uygula
+        ThemeManager.applySavedTheme(this)
+        
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
         
@@ -74,32 +79,43 @@ class LoginActivity : AppCompatActivity() {
         progressBar.visibility = View.VISIBLE
         
         // Log giriş denemesi
-        android.util.Log.d("LoginActivity", "Giriş denemesi: $identifier")
+        Log.d("LoginActivity", "Giriş denemesi: $identifier")
         
         // First try to login with email
         if (android.util.Patterns.EMAIL_ADDRESS.matcher(identifier).matches()) {
-            android.util.Log.d("LoginActivity", "Email ile giriş yapılıyor")
+            Log.d("LoginActivity", "Email ile giriş yapılıyor")
             loginWithEmail(identifier, password)
         } else {
-            android.util.Log.d("LoginActivity", "Kullanıcı adı/telefon kontrolü yapılıyor")
+            Log.d("LoginActivity", "Kullanıcı adı/telefon kontrolü yapılıyor")
             // If not email, check if it's a username or phone number
             checkUserIdentifier(identifier, password)
         }
     }
     
     private fun loginWithEmail(email: String, password: String) {
-        android.util.Log.d("LoginActivity", "Email ile giriş: $email")
+        Log.d("LoginActivity", "Email ile giriş: $email")
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener(this) { task ->
                 progressBar.visibility = View.GONE
                 
                 if (task.isSuccessful) {
                     // Sign in success
-                    android.util.Log.d("LoginActivity", "Giriş başarılı")
-                    navigateToMainActivity()
+                    Log.d("LoginActivity", "Giriş başarılı")
+                    
+                    // Firebase'den kullanıcının tema tercihini yükle
+                    ThemeManager.loadThemeFromFirebase(this@LoginActivity) { isDarkMode ->
+                        // Tema tercihini uygula
+                        ThemeManager.applyTheme(this@LoginActivity, isDarkMode)
+                        
+                        // Ana sayfaya yönlendir
+                        val intent = Intent(this@LoginActivity, MainActivity::class.java)
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        startActivity(intent)
+                        finish()
+                    }
                 } else {
                     // If sign in fails, display a message to the user
-                    android.util.Log.e("LoginActivity", "Giriş başarısız", task.exception)
+                    Log.e("LoginActivity", "Giriş başarısız", task.exception)
                     Toast.makeText(baseContext, "Giriş başarısız: " + task.exception?.message,
                         Toast.LENGTH_SHORT).show()
                 }
@@ -107,7 +123,7 @@ class LoginActivity : AppCompatActivity() {
     }
     
     private fun checkUserIdentifier(identifier: String, password: String) {
-        android.util.Log.d("LoginActivity", "Kullanıcı adı kontrolü: $identifier")
+        Log.d("LoginActivity", "Kullanıcı adı kontrolü: $identifier")
         // Query Firestore to find user by username or phone
         db.collection("users")
             .whereEqualTo("username", identifier)
@@ -118,30 +134,30 @@ class LoginActivity : AppCompatActivity() {
                     // Found user by username
                     val userDoc = documents.documents[0]
                     val email = userDoc.getString("email")
-                    android.util.Log.d("LoginActivity", "Kullanıcı adıyla bulundu, email: $email")
+                    Log.d("LoginActivity", "Kullanıcı adıyla bulundu, email: $email")
                     
                     if (email != null) {
                         loginWithEmail(email, password)
                     } else {
                         progressBar.visibility = View.GONE
-                        android.util.Log.e("LoginActivity", "Email bilgisi bulunamadı")
+                        Log.e("LoginActivity", "Email bilgisi bulunamadı")
                         Toast.makeText(this, "Kullanıcı e-posta bilgisi bulunamadı", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    android.util.Log.d("LoginActivity", "Kullanıcı adıyla bulunamadı, telefon kontrolü yapılıyor")
+                    Log.d("LoginActivity", "Kullanıcı adıyla bulunamadı, telefon kontrolü yapılıyor")
                     // Try phone number
                     checkPhoneNumber(identifier, password)
                 }
             }
             .addOnFailureListener { e ->
                 progressBar.visibility = View.GONE
-                android.util.Log.e("LoginActivity", "Kullanıcı adı kontrolünde hata", e)
+                Log.e("LoginActivity", "Kullanıcı adı kontrolünde hata", e)
                 Toast.makeText(this, "Hata: ${e.message}", Toast.LENGTH_SHORT).show()
             }
     }
     
     private fun checkPhoneNumber(phone: String, password: String) {
-        android.util.Log.d("LoginActivity", "Telefon kontrolü: $phone")
+        Log.d("LoginActivity", "Telefon kontrolü: $phone")
         // Query Firestore to find user by phone
         db.collection("users")
             .whereEqualTo("phone", phone)
@@ -154,34 +170,27 @@ class LoginActivity : AppCompatActivity() {
                     // Found user by phone
                     val userDoc = documents.documents[0]
                     val email = userDoc.getString("email")
-                    android.util.Log.d("LoginActivity", "Telefon numarasıyla bulundu, email: $email")
+                    Log.d("LoginActivity", "Telefon numarasıyla bulundu, email: $email")
                     
                     if (email != null) {
                         loginWithEmail(email, password)
                     } else {
-                        android.util.Log.e("LoginActivity", "Email bilgisi bulunamadı")
+                        Log.e("LoginActivity", "Email bilgisi bulunamadı")
                         Toast.makeText(this, "Kullanıcı e-posta bilgisi bulunamadı", Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     // User not found
-                    android.util.Log.e("LoginActivity", "Kullanıcı bulunamadı")
+                    Log.e("LoginActivity", "Kullanıcı bulunamadı")
                     Toast.makeText(this, "Kullanıcı bulunamadı. Lütfen e-posta, kullanıcı adı veya telefon numaranızı kontrol edin.", Toast.LENGTH_LONG).show()
                 }
             }
             .addOnFailureListener { e ->
                 progressBar.visibility = View.GONE
-                android.util.Log.e("LoginActivity", "Telefon kontrolünde hata", e)
+                Log.e("LoginActivity", "Telefon kontrolünde hata", e)
                 Toast.makeText(this, "Hata: ${e.message}", Toast.LENGTH_SHORT).show()
             }
     }
     
-    private fun navigateToMainActivity() {
-        val intent = Intent(this, MainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        startActivity(intent)
-        finish()
-    }
-
     // Check if user is already signed in when activity starts
     override fun onStart() {
         super.onStart()

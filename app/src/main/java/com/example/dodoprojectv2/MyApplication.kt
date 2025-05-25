@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.example.dodoprojectv2.work.TaskScheduler
+import com.example.dodoprojectv2.utils.ThemeManager
 import com.google.firebase.FirebaseApp
 
 /**
@@ -23,6 +24,9 @@ class MyApplication : Application() {
         
         // Uygulama context'ini kaydet
         appContext = applicationContext
+        
+        // Kaydedilmiş tema tercihini uygula
+        ThemeManager.applySavedTheme(this)
         
         // Firebase'i başlat
         FirebaseApp.initializeApp(this)

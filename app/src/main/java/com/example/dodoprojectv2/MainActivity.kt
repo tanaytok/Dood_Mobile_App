@@ -19,10 +19,10 @@ import androidx.navigation.ui.setupWithNavController
 import com.example.dodoprojectv2.databinding.ActivityMainBinding
 import com.example.dodoprojectv2.databinding.NotificationBadgeBinding
 import com.example.dodoprojectv2.ui.camera.CameraViewModel
+import com.example.dodoprojectv2.utils.ThemeManager
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreSettings
 
 class MainActivity : AppCompatActivity() {
     
@@ -35,9 +35,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // FirebaseFirestore indeksleme hataları için log kontrolü ekle
-        setupFirebaseIndexErrorLogging()
-        
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
@@ -47,6 +44,9 @@ class MainActivity : AppCompatActivity() {
         
         // Initialize ViewModel
         cameraViewModel = ViewModelProvider(this).get(CameraViewModel::class.java)
+        
+        // Kullanıcı giriş yapmışsa Firebase'den tema tercihini yükle
+        loadUserThemePreference()
         
         // Setup bottom navigation with fragments
         val navView: BottomNavigationView = binding.navView
@@ -168,29 +168,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    // Firebase indeks hatalarını yakala ve kullanıcıya yardımcı bilgi göster
-    private fun setupFirebaseIndexErrorLogging() {
-        val settings = FirebaseFirestoreSettings.Builder()
-            .setPersistenceEnabled(true)
-            .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
-            .build()
-            
-        FirebaseFirestore.getInstance().firestoreSettings = settings
-                
-        // Geliştirme aşamasında indeks hatalarını loglama
-        if (BuildConfig.DEBUG) {
-            FirebaseFirestore.setLoggingEnabled(true)
-        }
-        
-        Log.d("MainActivity", "Firestore settings configured with persistence enabled")
-    }
-    
     private fun handleTaskCompletionIntent() {
         // TaskCompletionActivity'den "Görevlere Dön" ile gelindi mi kontrol et
         if (intent.getBooleanExtra("SHOW_TASKS_FRAGMENT", false)) {
             // Tasks fragment'ını göster
             navController.navigate(R.id.navigation_tasks)
             Log.d("MainActivity", "TaskCompletionActivity'den yönlendirme: Tasks fragment'ı gösteriliyor")
+        }
+    }
+    
+    private fun loadUserThemePreference() {
+        ThemeManager.loadThemeFromFirebase(this) { isDarkMode ->
+            // Firebase'den gelen tema tercihini uygula
+            if (isDarkMode != ThemeManager.isDarkModeEnabled(this)) {
+                // Tema değişmişse aktiviteyi yeniden başlat
+                runOnUiThread {
+                    ThemeManager.applyTheme(this, isDarkMode)
+                    recreate()
+                }
+            } else {
+                // Tema aynıysa sadece mevcut temayı uygula
+                ThemeManager.applyTheme(this, isDarkMode)
+            }
         }
     }
 }

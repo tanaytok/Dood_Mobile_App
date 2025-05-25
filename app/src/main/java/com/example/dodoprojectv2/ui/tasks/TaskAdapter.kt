@@ -2,6 +2,7 @@ package com.example.dodoprojectv2.ui.tasks
 
 import android.graphics.PorterDuff
 import android.os.Build
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -57,17 +58,23 @@ class TaskAdapter(
             progressBarTask.max = task.totalCount
             progressBarTask.progress = task.completedCount
             
+            // Tema renklerini al
+            val context = itemView.context
+            val typedValue = TypedValue()
+            val theme = context.theme
+            
+            // Primary ve secondary text colors
+            theme.resolveAttribute(android.R.attr.textColorPrimary, typedValue, true)
+            val primaryTextColor = ContextCompat.getColor(context, typedValue.resourceId)
+            
+            theme.resolveAttribute(android.R.attr.textColorSecondary, typedValue, true)
+            val secondaryTextColor = ContextCompat.getColor(context, typedValue.resourceId)
+            
             // Eğer görev tamamlandıysa ilgili elemanlarda değişiklik yap
             if (task.isCompleted) {
                 // Tamamlanma göstergeleri
                 iconTaskCompleted.visibility = View.VISIBLE
                 overlayCompleted.visibility = View.VISIBLE
-                
-                // Kartın görünümünü değiştir
-                cardView.setCardBackgroundColor(
-                    ContextCompat.getColor(itemView.context, android.R.color.white)
-                )
-                cardView.elevation = 8f
                 
                 // Progress bar'ı yeşil yap
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -79,8 +86,8 @@ class TaskAdapter(
                     )
                 }
                 
-                // Text renklerini ayarla
-                textTaskTitle.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.darker_gray))
+                // Text renklerini ayarla - tamamlanmış görevler için soluk renk
+                textTaskTitle.setTextColor(secondaryTextColor)
                 textTaskProgress.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.holo_green_dark))
                 textTaskPoints.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.holo_green_dark))
                 
@@ -93,12 +100,6 @@ class TaskAdapter(
                 iconTaskCompleted.visibility = View.GONE
                 overlayCompleted.visibility = View.GONE
                 
-                // Kartın normal görünümü
-                cardView.setCardBackgroundColor(
-                    ContextCompat.getColor(itemView.context, android.R.color.white)
-                )
-                cardView.elevation = 4f
-                
                 // Progress bar'ı mavi yap
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     progressBarTask.progressTintList = ContextCompat.getColorStateList(itemView.context, android.R.color.holo_blue_light)
@@ -109,9 +110,9 @@ class TaskAdapter(
                     )
                 }
                 
-                // Text renklerini normale döndür
-                textTaskTitle.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.black))
-                textTaskProgress.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.darker_gray))
+                // Text renklerini normale döndür - tema renklerini kullan
+                textTaskTitle.setTextColor(primaryTextColor)
+                textTaskProgress.setTextColor(secondaryTextColor)
                 textTaskPoints.setTextColor(ContextCompat.getColor(itemView.context, android.R.color.holo_green_dark))
                 
                 // Buton durumu

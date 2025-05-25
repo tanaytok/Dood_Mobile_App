@@ -10,6 +10,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.example.dodoprojectv2.utils.ThemeManager
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
@@ -33,6 +34,9 @@ class PhoneLoginActivity : AppCompatActivity() {
     private val TAG = "PhoneLoginActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Kaydedilmiş tema tercihini uygula
+        ThemeManager.applySavedTheme(this)
+        
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_phone_login)
 
@@ -316,6 +320,7 @@ class PhoneLoginActivity : AppCompatActivity() {
                                     val userMap = hashMapOf(
                                         "userId" to userId,
                                         "phoneNumber" to user.phoneNumber,
+                                        "themePreference" to false, // Varsayılan light theme
                                         "createdAt" to System.currentTimeMillis()
                                     )
                                     
@@ -347,7 +352,16 @@ class PhoneLoginActivity : AppCompatActivity() {
     }
 
     private fun navigateToMainActivity() {
-        startActivity(Intent(this, MainActivity::class.java))
-        finish()
+        // Firebase'den kullanıcının tema tercihini yükle
+        ThemeManager.loadThemeFromFirebase(this) { isDarkMode ->
+            // Tema tercihini uygula
+            ThemeManager.applyTheme(this, isDarkMode)
+            
+            // Ana sayfaya yönlendir
+            val intent = Intent(this, MainActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
+            finish()
+        }
     }
 } 

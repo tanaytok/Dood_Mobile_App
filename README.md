@@ -70,17 +70,6 @@ DoDo Project v2, Gemini AI ile desteklenen günlük fotoğraf görevleri uygulam
 
 ---
 
-## 📱 Ekran Görüntüleri
-
-<div align="center">
-  <img src="screenshots/home_screen.png" width="200" alt="Ana Ekran">
-  <img src="screenshots/tasks_screen.png" width="200" alt="Görevler">
-  <img src="screenshots/camera_screen.png" width="200" alt="Kamera">
-  <img src="screenshots/profile_screen.png" width="200" alt="Profil">
-</div>
-
----
-
 ## 🛠️ Kurulum
 
 ### Gereksinimler

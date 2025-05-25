@@ -1,4 +1,4 @@
-# 🎯 DoDo Project v2
+# 🎯 DoDo Project
 
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://android.com)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin-purple.svg)](https://kotlinlang.org)

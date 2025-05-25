@@ -384,7 +384,8 @@ class TaskGeneratorWorker(
     
     /**
      * API çağrısı yapılıp yapılamayacağını kontrol eder
-     * Rate limiting için son çağrının üzerinden en az 6 saat geçmiş olması gerekir
+     * Rate limiting için son çağrının üzerinden en az 8 saat geçmiş olması gerekir
+     * (Günde 3 görev oluşturmak için 24 saat / 3 = 8 saat)
      */
     private suspend fun canMakeApiCall(): Boolean {
         return try {
@@ -402,9 +403,9 @@ class TaskGeneratorWorker(
             val currentTime = System.currentTimeMillis()
             val timeDifference = currentTime - lastCallTime
             
-            // 6 saat = 21600000 ms (quota koruması için uzun süre)
-            val sixHours = 21600000L
-            val canCall = timeDifference >= sixHours
+            // 8 saat = 28800000 ms (günde 3 görev için 24/3=8 saat bekle)
+            val eightHours = 28800000L
+            val canCall = timeDifference >= eightHours
             
             Log.d(TAG, "Son API çağrısından ${timeDifference / 3600000} saat geçti. API çağrısı: ${if (canCall) "İzinli" else "Engelli"}")
             

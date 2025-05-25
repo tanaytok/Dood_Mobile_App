@@ -450,13 +450,13 @@ class TasksViewModel : ViewModel() {
             }
         }
         
-        // 10 saniye timeout - eğer hala işlem devam ediyorsa fallback görevleri göster
+        // 15 saniye timeout - eğer hala işlem devam ediyorsa fallback görevleri göster
         Handler(Looper.getMainLooper()).postDelayed({
             if (_isLoading.value == true) {
                 Log.w(TAG, "AI görev üretici timeout, fallback görevleri gösteriliyor")
                 createSampleTasksIfNeeded()
             }
-        }, 10000)
+        }, 15000)
     }
 
     private fun createSampleTasksIfNeeded() {
@@ -515,7 +515,7 @@ class TasksViewModel : ViewModel() {
         _tasks.value = sampleTasks
         _isEmpty.value = false
         _isLoading.value = false
-        _errorMessage.value = "AI görev üretici geçici olarak kullanılamıyor. Örnek görevler gösteriliyor."
+        _errorMessage.value = "AI yeni görevler oluşturuyor... Bu sırada örnek görevleri deneyebilirsiniz!"
         Log.d(TAG, "Sample görevler oluşturuldu ve kullanıcıya gösterildi")
     }
     
@@ -979,6 +979,154 @@ class TasksViewModel : ViewModel() {
                 
                 // Bağlantı yoksa sample görevleri göster
                 createSampleTasksIfNeeded()
+            }
+    }
+    
+    /**
+     * AI görevlerini manuel olarak tetikler ve rate limiting'i geçici olarak bypass eder
+     */
+    fun forceGenerateAITasks() {
+        Log.d(TAG, "=== AI GÖREV ÜRETİMİ MANUEL TETİKLENDİ ===")
+        _isLoading.value = true
+        _errorMessage.value = "AI yeni görevler oluşturuyor..."
+        
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            _errorMessage.value = "Oturum açmanız gerekiyor"
+            _isLoading.value = false
+            return
+        }
+        
+        val today = Calendar.getInstance()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dateString = dateFormat.format(today.time)
+        
+        // Rate limiting'i reset et - Son API çağrısını eski bir tarih yap
+        resetApiRateLimit()
+        
+        // WorkManager ile görev oluşturmayı hemen tetikle
+        val workRequest = OneTimeWorkRequestBuilder<TaskGeneratorWorker>()
+            .addTag("MANUAL_TRIGGER")
+            .build()
+        
+        val workManager = WorkManager.getInstance(MyApplication.appContext)
+        workManager.enqueue(workRequest)
+        
+        // WorkManager'ın durumunu izle
+        workManager.getWorkInfoByIdLiveData(workRequest.id).observeForever { workInfo ->
+            when (workInfo?.state) {
+                androidx.work.WorkInfo.State.SUCCEEDED -> {
+                    Log.d(TAG, "✅ AI görev üretimi başarılı! Görevler yeniden yükleniyor")
+                    _errorMessage.value = "AI görevler başarıyla oluşturuldu!"
+                    
+                    // İşlem başarılı, görevleri yeniden yükle
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        loadTasks()
+                    }, 2000)
+                }
+                androidx.work.WorkInfo.State.FAILED -> {
+                    Log.w(TAG, "❌ AI görev üretimi başarısız, örnek görevler gösteriliyor")
+                    _errorMessage.value = "AI görev üretimi başarısız. Örnek görevler gösteriliyor."
+                    createSampleTasksIfNeeded()
+                }
+                androidx.work.WorkInfo.State.CANCELLED -> {
+                    Log.w(TAG, "⚠️ AI görev üretimi iptal edildi")
+                    _errorMessage.value = "İşlem iptal edildi."
+                    createSampleTasksIfNeeded()
+                }
+                else -> {
+                    // RUNNING, ENQUEUED, BLOCKED durumları - bekle
+                    Log.d(TAG, "🔄 AI görev üretici durumu: ${workInfo?.state}")
+                }
+            }
+        }
+        
+        // 30 saniye timeout - eğer hala işlem devam ediyorsa sonuçları göster
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (_isLoading.value == true) {
+                Log.w(TAG, "⏱️ AI görev üretici timeout, sonuçları kontrol ediliyor")
+                loadTasks() // Son durumu kontrol et
+            }
+        }, 30000)
+    }
+    
+    /**
+     * API rate limiting'i sıfırlar
+     */
+    private fun resetApiRateLimit() {
+        try {
+            // Son API çağrısını 2 saat öncesine ayarla
+            val twoHoursAgo = System.currentTimeMillis() - (2 * 60 * 60 * 1000)
+            
+            firestore.collection("api_usage")
+                .document("gemini_last_call")
+                .set(mapOf(
+                    "timestamp" to twoHoursAgo,
+                    "reset_by_user" to true,
+                    "reset_at" to System.currentTimeMillis()
+                ))
+                .addOnSuccessListener {
+                    Log.d(TAG, "✅ API rate limit başarıyla sıfırlandı")
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ API rate limit sıfırlama hatası: ${e.message}")
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Rate limit sıfırlama sırasında hata: ${e.message}")
+        }
+    }
+
+    /**
+     * DEBUG: AI görevlerini hemen tetiklemek için rate limiting'i bypass eder
+     */
+    fun forceGenerateAITasksNow() {
+        Log.d(TAG, "🚀 AI görev üretimi zorla tetikleniyor...")
+        _isLoading.value = true
+        _errorMessage.value = "AI görevler oluşturuluyor..."
+        
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            _errorMessage.value = "Kullanıcı oturum açmamış"
+            _isLoading.value = false
+            return
+        }
+        
+        // Bugünün tarihini al
+        val today = Calendar.getInstance()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val currentDate = dateFormat.format(today.time)
+        
+        // 1. Bugünün mevcut görevlerini sil
+        firestore.collection("daily_tasks")
+            .document(currentDate)
+            .delete()
+            .addOnSuccessListener {
+                Log.d(TAG, "✅ Bugünün mevcut görevleri silindi")
+                
+                // 2. Eski API kullanım kayıtlarını temizle
+                firestore.collection("api_usage")
+                    .document("gemini_last_call")
+                    .delete()
+                    .addOnSuccessListener {
+                        Log.d(TAG, "✅ Eski API kayıtları temizlendi")
+                        // Rate limiting bypass edildikten sonra AI görevleri tetikle
+                        triggerTaskGeneration(currentUser.uid, currentDate)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ API kayıt temizleme hatası: ${e.message}")
+                        // Hata olsa bile AI görevleri tetiklemeyi dene
+                        triggerTaskGeneration(currentUser.uid, currentDate)
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "❌ Bugünün görevlerini silme hatası: ${e.message}")
+                // Hata olsa bile devam et
+                firestore.collection("api_usage")
+                    .document("gemini_last_call")
+                    .delete()
+                    .addOnCompleteListener {
+                        triggerTaskGeneration(currentUser.uid, currentDate)
+                    }
             }
     }
 } 

@@ -79,7 +79,12 @@ class TasksFragment : Fragment() {
         // Hata mesajlarını izle
         tasksViewModel.errorMessage.observe(viewLifecycleOwner) { errorMsg ->
             if (!errorMsg.isNullOrEmpty()) {
-                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                // Eğer mesaj AI görev üretici ile ilgiliyse, toast'a ek bir buton ekle
+                if (errorMsg.contains("AI") || errorMsg.contains("örnek") || errorMsg.contains("hazırlanıyor")) {
+                    Toast.makeText(context, "$errorMsg\n\nİpucu: Boş alan yazısına dokunarak AI görevlerini yenileyebilirsiniz!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                }
             }
         }
         
@@ -108,6 +113,21 @@ class TasksFragment : Fragment() {
             Log.d(TAG, "Connectivity test tetiklendi")
             Toast.makeText(context, "Bağlantı test ediliyor...", Toast.LENGTH_SHORT).show()
             tasksViewModel.testConnectivity()
+        }
+        
+        // Debug: Zamanı gösteren text'e uzun basınca AI görevlerini hemen tetikle
+        binding.textTimeUntilReset.setOnLongClickListener {
+            Log.d(TAG, "AI görev tetikleme (rate limit bypass) başlatıldı")
+            Toast.makeText(context, "🚀 AI görevler HEMEN oluşturuluyor... (Rate limiting bypassed)", Toast.LENGTH_LONG).show()
+            tasksViewModel.forceGenerateAITasksNow()
+            true
+        }
+        
+        // AI Görev Tetikleme: Boş görevler yazısına basınca AI görevlerini tetikle
+        binding.textEmptyTasks.setOnClickListener {
+            Log.d(TAG, "AI görev tetikleme başlatıldı")
+            Toast.makeText(context, "AI görevler oluşturuluyor...", Toast.LENGTH_LONG).show()
+            tasksViewModel.forceGenerateAITasks()
         }
     }
     

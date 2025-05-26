@@ -172,6 +172,15 @@ class ProfileFragment : Fragment() {
                 showSettingsDialog()
             }
             
+            // Setup bio edit button
+            binding.buttonEditBio.setOnClickListener {
+                Log.d(TAG, "Biyografi düzenleme butonuna tıklandı")
+                showEditProfileDialog()
+            }
+            
+            // Setup click listeners for stats cards
+            setupStatsClickListeners()
+            
             // Glide ile varsayılan resmi yükle
             Glide.with(this)
                 .load(R.drawable.default_profile)
@@ -181,6 +190,27 @@ class ProfileFragment : Fragment() {
         }
     }
     
+    private fun setupStatsClickListeners() {
+        try {
+            // Get currently viewed user ID
+            val viewedUserId = arguments?.getString("userId") ?: auth.currentUser?.uid ?: ""
+            
+            // Followers card click listener
+            binding.layoutStats.getChildAt(1).setOnClickListener {
+                Log.d(TAG, "Takipçiler kartına tıklandı")
+                showFollowersDialog(viewedUserId, "followers")
+            }
+            
+            // Following card click listener
+            binding.layoutStats.getChildAt(2).setOnClickListener {
+                Log.d(TAG, "Takip edilenler kartına tıklandı")
+                showFollowersDialog(viewedUserId, "following")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "İstatistik click listener'ları kurulurken hata: ${e.message}", e)
+        }
+    }
+
     private fun setupRecyclerView() {
         try {
             // RecyclerView düzenini ayarla
@@ -249,13 +279,8 @@ class ProfileFragment : Fragment() {
                             Log.d(TAG, "Seri: $streak")
                             binding.textStreakCount.text = streak.toString()
                             
-                            val followers = document.getLong("followers") ?: 0
-                            Log.d(TAG, "Takipçi: $followers")
-                            binding.textFollowersCount.text = followers.toString()
-                            
-                            val following = document.getLong("following") ?: 0
-                            Log.d(TAG, "Takip: $following")
-                            binding.textFollowingCount.text = following.toString()
+                            // Gerçek takipçi ve takip sayılarını hesapla ve güncelle
+                            calculateAndUpdateFollowCounts(profileUserId)
                             
                             // Profile photo
                             val profilePhotoUrl = document.getString("profilePhotoUrl") ?: ""
@@ -549,7 +574,6 @@ class ProfileFragment : Fragment() {
             
             // Dialog bileşenlerini bul
             val switchDarkMode = dialog.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switch_dark_mode)
-            val layoutEditProfile = dialog.findViewById<View>(R.id.layout_edit_profile)
             val layoutLogout = dialog.findViewById<View>(R.id.layout_logout)
             val buttonClose = dialog.findViewById<Button>(R.id.button_close)
             
@@ -563,12 +587,6 @@ class ProfileFragment : Fragment() {
                 
                 // Temayı hemen uygula
                 activity?.recreate()
-            }
-            
-            // Profil düzenle tıklama olayı
-            layoutEditProfile.setOnClickListener {
-                dialog.dismiss()
-                showEditProfileDialog()
             }
             
             // Çıkış yap tıklama olayı
@@ -1098,6 +1116,7 @@ class ProfileFragment : Fragment() {
             binding.buttonFollow.visibility = View.VISIBLE
             binding.buttonChangePhoto.visibility = View.GONE
             binding.buttonEditProfileTop.visibility = View.GONE
+            binding.buttonEditBio.visibility = View.GONE
             
             // Takip et butonu için tıklama olayı
             binding.buttonFollow.setOnClickListener {
@@ -1114,6 +1133,7 @@ class ProfileFragment : Fragment() {
         binding.buttonFollow.visibility = View.GONE
         binding.buttonChangePhoto.visibility = View.VISIBLE
         binding.buttonEditProfileTop.visibility = View.VISIBLE
+        binding.buttonEditBio.visibility = View.VISIBLE
     }
     
     // Takip durumunu kontrol et
@@ -1217,34 +1237,119 @@ class ProfileFragment : Fragment() {
         }
     }
     
+    // Gerçek takipçi sayılarını hesapla ve güncelle
+    private fun calculateAndUpdateFollowCounts(userId: String) {
+        try {
+            Log.d(TAG, "Gerçek takipçi sayıları hesaplanıyor: $userId")
+            
+            // Takipçi sayısını hesapla (bu kullanıcıyı takip eden kişiler)
+            firestore.collection("follows")
+                .whereEqualTo("followingId", userId)
+                .get()
+                .addOnSuccessListener { followerDocuments ->
+                    val realFollowersCount = followerDocuments.size()
+                    Log.d(TAG, "Gerçek takipçi sayısı: $realFollowersCount")
+                    
+                    // UI'ı güncelle
+                    binding.textFollowersCount.text = realFollowersCount.toString()
+                    
+                    // Firebase'deki değeri de güncelle
+                    firestore.collection("users").document(userId)
+                        .update("followers", realFollowersCount)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Takipçi sayısı Firebase'de güncellendi: $realFollowersCount")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Takipçi sayısı güncellenirken hata: ${e.message}", e)
+                        }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Takipçi sayısı hesaplanırken hata: ${e.message}", e)
+                    // Hata durumunda Firebase'deki mevcut değeri göster
+                    firestore.collection("users").document(userId)
+                        .get()
+                        .addOnSuccessListener { document ->
+                            val fallbackFollowers = document.getLong("followers") ?: 0
+                            binding.textFollowersCount.text = fallbackFollowers.toString()
+                        }
+                }
+            
+            // Takip ettiği kişi sayısını hesapla (bu kullanıcının takip ettiği kişiler)
+            firestore.collection("follows")
+                .whereEqualTo("followerId", userId)
+                .get()
+                .addOnSuccessListener { followingDocuments ->
+                    val realFollowingCount = followingDocuments.size()
+                    Log.d(TAG, "Gerçek takip sayısı: $realFollowingCount")
+                    
+                    // UI'ı güncelle
+                    binding.textFollowingCount.text = realFollowingCount.toString()
+                    
+                    // Firebase'deki değeri de güncelle
+                    firestore.collection("users").document(userId)
+                        .update("following", realFollowingCount)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Takip sayısı Firebase'de güncellendi: $realFollowingCount")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Takip sayısı güncellenirken hata: ${e.message}", e)
+                        }
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "Takip sayısı hesaplanırken hata: ${e.message}", e)
+                    // Hata durumunda Firebase'deki mevcut değeri göster
+                    firestore.collection("users").document(userId)
+                        .get()
+                        .addOnSuccessListener { document ->
+                            val fallbackFollowing = document.getLong("following") ?: 0
+                            binding.textFollowingCount.text = fallbackFollowing.toString()
+                        }
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Takipçi sayıları hesaplanırken beklenmeyen hata: ${e.message}", e)
+        }
+    }
+
     // Takipçi/takip sayısını güncelle
     private fun updateFollowCounts(followedUserId: String, followerUserId: String, increment: Int) {
-        // Takip edilen kullanıcının takipçi sayısını güncelle
-        firestore.collection("users").document(followedUserId)
+        // Takip/takip bırakma işleminden sonra gerçek sayıları hesapla ve güncelle
+        
+        // Takip edilen kullanıcının takipçi sayısını yeniden hesapla
+        firestore.collection("follows")
+            .whereEqualTo("followingId", followedUserId)
             .get()
-            .addOnSuccessListener { document ->
-                val currentFollowers = document.getLong("followers")?.toInt() ?: 0
-                val newFollowers = (currentFollowers + increment).coerceAtLeast(0)
+            .addOnSuccessListener { followerDocuments ->
+                val realFollowersCount = followerDocuments.size()
                 
+                // Firebase'deki değeri güncelle
                 firestore.collection("users").document(followedUserId)
-                    .update("followers", newFollowers)
+                    .update("followers", realFollowersCount)
                     .addOnSuccessListener {
                         // Sadece UI görüntülenen kullanıcı için güncelle
-                        if (arguments?.getString("userId") == followedUserId) {
-                            binding.textFollowersCount.text = newFollowers.toString()
+                        val currentViewedUserId = arguments?.getString("userId") ?: auth.currentUser?.uid
+                        if (currentViewedUserId == followedUserId) {
+                            binding.textFollowersCount.text = realFollowersCount.toString()
                         }
                     }
             }
         
-        // Takip eden kullanıcının takip ettiği sayısını güncelle
-        firestore.collection("users").document(followerUserId)
+        // Takip eden kullanıcının takip ettiği sayısını yeniden hesapla  
+        firestore.collection("follows")
+            .whereEqualTo("followerId", followerUserId)
             .get()
-            .addOnSuccessListener { document ->
-                val currentFollowing = document.getLong("following")?.toInt() ?: 0
-                val newFollowing = (currentFollowing + increment).coerceAtLeast(0)
+            .addOnSuccessListener { followingDocuments ->
+                val realFollowingCount = followingDocuments.size()
                 
+                // Firebase'deki değeri güncelle
                 firestore.collection("users").document(followerUserId)
-                    .update("following", newFollowing)
+                    .update("following", realFollowingCount)
+                    .addOnSuccessListener {
+                        // Eğer takip eden kişi şu anda görüntülenen kullanıcıysa UI'ı güncelle
+                        val currentViewedUserId = arguments?.getString("userId") ?: auth.currentUser?.uid
+                        if (currentViewedUserId == followerUserId) {
+                            binding.textFollowingCount.text = realFollowingCount.toString()
+                        }
+                    }
             }
     }
     
@@ -1309,5 +1414,218 @@ class ProfileFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+    
+    private fun showFollowersDialog(userId: String, type: String) {
+        try {
+            val currentUser = auth.currentUser ?: return
+            
+            // Check if user can view this information
+            val isOwnProfile = userId == currentUser.uid
+            
+            if (!isOwnProfile) {
+                // Check if current user follows the profile user
+                firestore.collection("follows")
+                    .document("${currentUser.uid}_${userId}")
+                    .get()
+                    .addOnSuccessListener { document ->
+                        val isFollowing = document.exists()
+                        
+                        if (isFollowing) {
+                            // User can view the list
+                            showFollowListDialog(userId, type)
+                        } else {
+                            // Show permission denied dialog
+                            showPermissionDeniedDialog(type)
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Takip durumu kontrol edilirken hata: ${e.message}", e)
+                        showPermissionDeniedDialog(type)
+                    }
+            } else {
+                // Own profile, can view everything
+                showFollowListDialog(userId, type)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Takipçiler dialog'u gösterilirken hata: ${e.message}", e)
+        }
+    }
+    
+    private fun showFollowListDialog(userId: String, type: String) {
+        try {
+            val dialog = Dialog(requireContext())
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_followers_following)
+            
+            val window = dialog.window
+            window?.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            
+            // Setup dialog views
+            val textTitle = dialog.findViewById<TextView>(R.id.text_dialog_title)
+            val buttonClose = dialog.findViewById<ImageButton>(R.id.button_close_dialog)
+            val recyclerView = dialog.findViewById<RecyclerView>(R.id.recycler_view_users)
+            val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmpty = dialog.findViewById<TextView>(R.id.text_empty_state)
+            
+            // Set title
+            textTitle.text = if (type == "followers") "Takipçiler" else "Takip Edilenler"
+            
+            // Setup close button
+            buttonClose.setOnClickListener {
+                dialog.dismiss()
+            }
+            
+            // Setup RecyclerView
+            val followAdapter = FollowUserAdapter(emptyList()) { clickedUserId ->
+                dialog.dismiss()
+                navigateToUserProfile(clickedUserId)
+            }
+            
+            recyclerView.apply {
+                layoutManager = LinearLayoutManager(requireContext())
+                adapter = followAdapter
+            }
+            
+            // Load data
+            progressBar.visibility = View.VISIBLE
+            textEmpty.visibility = View.GONE
+            
+            loadFollowData(userId, type, followAdapter, progressBar, textEmpty)
+            
+            dialog.show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Follow list dialog'u gösterilirken hata: ${e.message}", e)
+        }
+    }
+    
+    private fun showPermissionDeniedDialog(type: String) {
+        try {
+            val dialog = Dialog(requireContext())
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_followers_following)
+            
+            val window = dialog.window
+            window?.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            
+            // Setup dialog views
+            val textTitle = dialog.findViewById<TextView>(R.id.text_dialog_title)
+            val buttonClose = dialog.findViewById<ImageButton>(R.id.button_close_dialog)
+            val recyclerView = dialog.findViewById<RecyclerView>(R.id.recycler_view_users)
+            val progressBar = dialog.findViewById<ProgressBar>(R.id.progress_bar)
+            val textEmpty = dialog.findViewById<TextView>(R.id.text_empty_state)
+            val layoutPermissionDenied = dialog.findViewById<View>(R.id.layout_permission_denied)
+            
+            // Set title
+            textTitle.text = if (type == "followers") "Takipçiler" else "Takip Edilenler"
+            
+            // Setup close button
+            buttonClose.setOnClickListener {
+                dialog.dismiss()
+            }
+            
+            // Hide other views and show permission denied
+            recyclerView.visibility = View.GONE
+            progressBar.visibility = View.GONE
+            textEmpty.visibility = View.GONE
+            layoutPermissionDenied.visibility = View.VISIBLE
+            
+            dialog.show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Permission denied dialog'u gösterilirken hata: ${e.message}", e)
+        }
+    }
+    
+    private fun loadFollowData(userId: String, type: String, adapter: FollowUserAdapter, progressBar: ProgressBar, textEmpty: TextView) {
+        try {
+            val collection = if (type == "followers") "follows" else "follows"
+            val fieldToQuery = if (type == "followers") "followingId" else "followerId"
+            val fieldToGet = if (type == "followers") "followerId" else "followingId"
+            
+            firestore.collection(collection)
+                .whereEqualTo(fieldToQuery, userId)
+                .get()
+                .addOnSuccessListener { documents ->
+                    progressBar.visibility = View.GONE
+                    
+                    if (documents.isEmpty) {
+                        textEmpty.visibility = View.VISIBLE
+                        textEmpty.text = if (type == "followers") "Henüz kimse takip etmiyor" else "Henüz kimseyi takip etmiyor"
+                        adapter.updateUsers(emptyList())
+                    } else {
+                        textEmpty.visibility = View.GONE
+                        
+                        // Get user IDs
+                        val userIds = documents.mapNotNull { it.getString(fieldToGet) }
+                        
+                        // Load user details
+                        loadUserDetails(userIds, adapter)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    progressBar.visibility = View.GONE
+                    textEmpty.visibility = View.VISIBLE
+                    textEmpty.text = "Veri yüklenirken hata oluştu"
+                    Log.e(TAG, "Follow data yüklenirken hata: ${e.message}", e)
+                }
+        } catch (e: Exception) {
+            progressBar.visibility = View.GONE
+            textEmpty.visibility = View.VISIBLE
+            textEmpty.text = "Beklenmeyen hata oluştu"
+            Log.e(TAG, "loadFollowData'da hata: ${e.message}", e)
+        }
+    }
+    
+    private fun loadUserDetails(userIds: List<String>, adapter: FollowUserAdapter) {
+        try {
+            if (userIds.isEmpty()) {
+                adapter.updateUsers(emptyList())
+                return
+            }
+            
+            val users = mutableListOf<FollowUser>()
+            var loadedCount = 0
+            
+            for (userId in userIds) {
+                firestore.collection("users").document(userId)
+                    .get()
+                    .addOnSuccessListener { document ->
+                        loadedCount++
+                        
+                        if (document.exists()) {
+                            val user = FollowUser(
+                                userId = userId,
+                                username = document.getString("username") ?: "Kullanıcı",
+                                bio = document.getString("bio") ?: "",
+                                profilePhotoUrl = document.getString("profilePhotoUrl") ?: ""
+                            )
+                            users.add(user)
+                        }
+                        
+                        // All users loaded
+                        if (loadedCount == userIds.size) {
+                            adapter.updateUsers(users.sortedBy { it.username })
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        loadedCount++
+                        Log.e(TAG, "User detail yüklenirken hata: ${e.message}", e)
+                        
+                        // All users processed (with some failures)
+                        if (loadedCount == userIds.size) {
+                            adapter.updateUsers(users.sortedBy { it.username })
+                        }
+                    }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "loadUserDetails'de hata: ${e.message}", e)
+            adapter.updateUsers(emptyList())
+        }
     }
 } 

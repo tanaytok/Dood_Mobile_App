@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/colorPrimary">
+    
+    <item>
+        <shape android:shape="rectangle">
+            <!-- Gradient background for dark theme -->
+            <gradient
+                android:startColor="#2A2D3A"
+                android:endColor="#1E2128"
+                android:angle="90" />
+            
+            <!-- Corner radius for rounded corners -->
+            <corners android:radius="20dp" />
+            
+            <!-- Subtle stroke -->
+            <stroke
+                android:width="1dp"
+                android:color="#3A3F4E" />
+        </shape>
+    </item>
+    
+</ripple> 

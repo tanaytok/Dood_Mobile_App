@@ -126,7 +126,7 @@ app/
 
 ## 📋 Gelecek Özellikler
 
-- [ ] 👥 Arkadaş sistemi
+- [ ] 👥 Mesajlaşma sistemi
 - [ ] 🏆 Başarım rozet sistemi
 - [ ] 📊 Detaylı istatistikler
 - [ ] 🌍 Konum bazlı görevler

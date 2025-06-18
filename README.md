@@ -126,7 +126,7 @@ app/
 
 ## 📋 Gelecek Özellikler
 
-- [ ] 👥 Arkadaş sistemi
+- [ ] 👥 Mesajlaşma sistemi
 - [ ] 🏆 Başarım rozet sistemi
 - [ ] 📊 Detaylı istatistikler
 - [ ] 🌍 Konum bazlı görevler
@@ -141,7 +141,7 @@ app/
 
 **Yasin Baran Kaplan**
 - 📧 Email: kaplanyasin2001@gmail.com
-- 💼 LinkedIn: https://www.linkedin.com/in/tanaytok/](https://www.linkedin.com/in/yasin-baran-kaplan/
+- 💼 LinkedIn: https://www.linkedin.com/in/yasin-baran-kaplan/
 
 **Atahan Bozok Özmutlu**
 - 📧 Email: bozok317@gmail.com
